@@ -1,0 +1,6 @@
+.envrc
+testenv/conf/legacy
+testenv/volumes/minio/*
+testenv/volumes/squid/*
+!testenv/volumes/squid/squid.conf
+testenv/volumes/woodpecker-*

@@ -1,0 +1,63 @@
+steps:
+  - image: owncloudci/drone-skip-pipeline
+    name: skip-if-unchanged
+    settings:
+      ALLOW_SKIP_CHANGED:
+        - ^.github/.*
+        - ^.vscode/.*
+        - ^changelog/.*
+        - ^docs/.*
+        - ^deployments/.*
+        - CHANGELOG.md
+        - CONTRIBUTING.md
+        - LICENSE
+        - README.md
+        - ^tests/acceptance/.*
+    when:
+      - event: pull_request
+  - commands:
+      # TODO: added
+      - curl -s -o check_go_bin_cache.sh http://host.docker.internal/check_go_bin_cache.sh
+    image: owncloud/ubuntu:20.04
+    name: get-drone-env-and-check-script
+  - commands:
+      - bash -x check_go_bin_cache.sh $CI_WORKSPACE go-bin.tar.gz
+    environment:
+      CACHE_BUCKET:
+        from_secret: cache_s3_bucket
+      CACHE_ENDPOINT:
+        from_secret: cache_s3_server
+    image: owncloud/ubuntu:20.04
+    name: check-go-bin-cache
+  - commands:
+      - make bingo-update
+    # TODO
+    environment:
+      HTTP_PROXY:
+        from_secret: drone_http_proxy
+      HTTPS_PROXY:
+        from_secret: drone_http_proxy
+      GOPATH: /woodpecker/go
+    image: golang:1.22
+    name: bingo-get
+  - commands:
+      - tar -czvf go-bin.tar.gz /woodpecker/go/bin
+    image: owncloud/ubuntu:20.04
+    name: archive-go-bin
+  - commands:
+      - BINGO_HASH=$(cat .bingo_hash)
+      - mc alias set s3 $MC_HOST $AWS_ACCESS_KEY_ID $AWS_SECRET_ACCESS_KEY
+      - mc cp -r go-bin.tar.gz s3/$CACHE_BUCKET/opencloud/go-bin/$BINGO_HASH
+    environment:
+      AWS_ACCESS_KEY_ID:
+        from_secret: cache_s3_access_key
+      AWS_SECRET_ACCESS_KEY:
+        from_secret: cache_s3_secret_key
+      CACHE_BUCKET:
+        from_secret: cache_s3_bucket
+      MC_HOST:
+        from_secret: cache_s3_server
+    image: minio/mc:RELEASE.2021-10-07T04-19-58Z
+    name: cache-go-bin
+when:
+  - evaluate: 'ENV_WORKFLOW_SKIP_6_GET_GO_BIN_CACHE != "true"' # TODO

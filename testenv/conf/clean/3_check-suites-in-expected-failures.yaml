@@ -1,0 +1,7 @@
+steps:
+  - commands:
+      - tests/acceptance/check-deleted-suites-in-expected-failure.sh
+    image: owncloudci/alpine:latest
+    name: check-suites
+when:
+  - evaluate: 'ENV_WORKFLOW_SKIP_3_CHECK_SUITES_IN_EXPECTED_FAILURES != "true"' # TODO

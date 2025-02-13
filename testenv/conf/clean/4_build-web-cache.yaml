@@ -1,0 +1,49 @@
+skip_clone: true
+steps:
+  - commands:
+      # TODO
+      #- curl -s -o .drone.env https://raw.githubusercontent.com/owncloud/ocis/commit/.drone.env
+      - curl -s -o .drone.env http://host.docker.internal/.drone.env
+      # TODO
+      #- curl -s -o check_web_cache.sh https://raw.githubusercontent.com/owncloud/ocis/commit/tests/config/drone/check_web_cache.sh
+      - curl -s -o check_web_cache.sh http://host.docker.internal/check_web_cache.sh
+    image: owncloud/ubuntu:20.04
+    name: get-drone-env-and-check-script
+  - commands:
+      - bash -x check_web_cache.sh web
+    environment:
+      CACHE_BUCKET:
+        from_secret: cache_s3_bucket
+      CACHE_ENDPOINT:
+        from_secret: cache_s3_server
+    image: owncloud/ubuntu:20.04
+    name: check-for-web-cache
+  - commands:
+      - . ./.drone.env
+      - rm -rf /woodpecker/src/webTestRunner
+      - git clone -b $WEB_BRANCH --single-branch --no-tags https://github.com/opencloud/web.git /woodpecker/src/webTestRunner
+      - cd /woodpecker/src/webTestRunner && git checkout $WEB_COMMITID
+    image: owncloudci/nodejs:20
+    name: clone-web
+  - commands:
+      - if [ ! -d '/woodpecker/src/zip' ]; then mkdir -p /woodpecker/src/zip; fi
+      - tar -czvf /woodpecker/src/zip/web.tar.gz /woodpecker/src/webTestRunner
+    image: owncloud/ubuntu:20.04
+    name: zip-web
+  - commands:
+      - source ./.drone.env
+      - mc alias set s3 $MC_HOST $AWS_ACCESS_KEY_ID $AWS_SECRET_ACCESS_KEY
+      - mc cp -r -a /woodpecker/src/zip/web.tar.gz s3/$CACHE_BUCKET/opencloud/web-test-runner/$WEB_COMMITID
+    environment:
+      AWS_ACCESS_KEY_ID:
+        from_secret: cache_s3_access_key
+      AWS_SECRET_ACCESS_KEY:
+        from_secret: cache_s3_secret_key
+      CACHE_BUCKET:
+        from_secret: cache_s3_bucket
+      MC_HOST:
+        from_secret: cache_s3_server
+    image: minio/mc:RELEASE.2021-10-07T04-19-58Z
+    name: cache-web
+when:
+  - evaluate: 'ENV_WORKFLOW_SKIP_4_BUILD_WEB_CACHE != "true"' # TODO

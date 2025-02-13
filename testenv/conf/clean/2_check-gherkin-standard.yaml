@@ -1,0 +1,8 @@
+steps:
+  - commands:
+      - npm install -g @gherlint/gherlint@1.1.0
+      - make test-gherkin-lint
+    image: owncloudci/nodejs:20
+    name: lint-feature-files
+when:
+  - evaluate: 'ENV_WORKFLOW_SKIP_2_CHECK_GHERKIN_STANDARD != "true"' # TODO

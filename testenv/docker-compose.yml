@@ -1,0 +1,67 @@
+services:
+  woodpecker-server:
+    image: woodpeckerci/woodpecker-server:v3
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./volumes/woodpecker-server-data:/var/lib/woodpecker/
+    environment:
+      - WOODPECKER_OPEN=${WOODPECKER_OPEN}
+      - WOODPECKER_HOST=${WOODPECKER_HOST}
+      - WOODPECKER_GITHUB=${WOODPECKER_GITHUB}
+      - WOODPECKER_GITHUB_CLIENT=${WOODPECKER_GITHUB_CLIENT}
+      - WOODPECKER_GITHUB_SECRET=${WOODPECKER_GITHUB_SECRET}
+      - WOODPECKER_AGENT_SECRET=${WOODPECKER_AGENT_SECRET}
+      - WOODPECKER_CONFIG_SERVICE_ENDPOINT=${WOODPECKER_CONFIG_SERVICE_ENDPOINT}
+      - WOODPECKER_LOG_LEVEL=${WOODPECKER_LOG_LEVEL}
+      - WOODPECKER_ADMIN=${WOODPECKER_ADMIN}
+      - WOODPECKER_PLUGINS_PRIVILEGED=${WOODPECKER_PLUGINS_PRIVILEGED}
+      - WOODPECKER_ENVIRONMENT=${WOODPECKER_ENVIRONMENT}
+
+  woodpecker-agent:
+    image: woodpeckerci/woodpecker-agent:v3
+    command: agent
+    restart: always
+    depends_on:
+      - woodpecker-server
+    volumes:
+      - ./volumes/woodpecker-agent-config:/etc/woodpecker
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      # WOODPECKER_SERVER,
+      # the client and the cli, share the same env for the server.
+      # unfortunately, the server and the agent have a different view on that,
+      # the agent needs a rpc address as the server and the cli needs an http address.
+      # as a workaround, the agent WOODPECKER_SERVER is hardcoded to the dc service name:9000.
+      - WOODPECKER_SERVER=woodpecker-server:9000
+      - WOODPECKER_AGENT_SECRET=${WOODPECKER_AGENT_SECRET}
+      - WOODPECKER_LOG_LEVEL=${WOODPECKER_LOG_LEVEL}
+      - WOODPECKER_MAX_WORKFLOWS=${WOODPECKER_MAX_WORKFLOWS}
+
+  minio:
+    image: docker.io/bitnami/minio:latest
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - ./volumes/minio:/data
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
+      - MINIO_DEFAULT_BUCKETS=${MINIO_DEFAULT_BUCKETS}
+
+  nginx:
+    image: nginx:latest
+    ports:
+      - "80:80"
+    volumes:
+      - ./volumes/nginx/html:/usr/share/nginx/html
+
+  squid:
+    image: sameersbn/squid:latest
+    ports:
+      - "3128:3128"
+    volumes:
+      - ./volumes/squid/squid.conf:/etc/squid/squid.conf
+      - ./volumes/squid/cache:/var/spool/squid
+
