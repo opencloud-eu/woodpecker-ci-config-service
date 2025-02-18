@@ -21,7 +21,7 @@ steps:
   - commands:
       - . ./.drone.env
       - rm -rf /woodpecker/src/webTestRunner
-      - git clone -b $WEB_BRANCH --single-branch --no-tags https://github.com/opencloud/web.git /woodpecker/src/webTestRunner
+      - git clone -b $WEB_BRANCH --single-branch --no-tags https://github.com/opencloud-eu/web.git /woodpecker/src/webTestRunner
       - cd /woodpecker/src/webTestRunner && git checkout $WEB_COMMITID
     image: owncloudci/nodejs:20
     name: clone-web
@@ -33,7 +33,7 @@ steps:
   - commands:
       - source ./.drone.env
       - mc alias set s3 $MC_HOST $AWS_ACCESS_KEY_ID $AWS_SECRET_ACCESS_KEY
-      - mc cp -r -a /woodpecker/src/zip/web.tar.gz s3/$CACHE_BUCKET/opencloud/web-test-runner/$WEB_COMMITID
+      - mc cp -r -a /woodpecker/src/zip/web.tar.gz s3/$CACHE_BUCKET/opencloud-eu/web-test-runner/$WEB_COMMITID
     environment:
       AWS_ACCESS_KEY_ID:
         from_secret: cache_s3_access_key

@@ -47,7 +47,7 @@ steps:
   - commands:
       - BINGO_HASH=$(cat .bingo_hash)
       - mc alias set s3 $MC_HOST $AWS_ACCESS_KEY_ID $AWS_SECRET_ACCESS_KEY
-      - mc cp -r go-bin.tar.gz s3/$CACHE_BUCKET/opencloud/go-bin/$BINGO_HASH
+      - mc cp -r go-bin.tar.gz s3/$CACHE_BUCKET/opencloud-eu/go-bin/$BINGO_HASH
     environment:
       AWS_ACCESS_KEY_ID:
         from_secret: cache_s3_access_key

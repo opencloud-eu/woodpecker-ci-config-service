@@ -10,7 +10,7 @@ fi
 
 echo "Checking web version - $WEB_COMMITID in cache"
 
-URL="$CACHE_ENDPOINT/$CACHE_BUCKET/opencloud/web-test-runner/$WEB_COMMITID/$1.tar.gz"
+URL="$CACHE_ENDPOINT/$CACHE_BUCKET/opencloud-eu/web-test-runner/$WEB_COMMITID/$1.tar.gz"
 
 echo "Checking for the web cache at '$URL'."
 
