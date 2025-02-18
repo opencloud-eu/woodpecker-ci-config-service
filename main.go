@@ -38,6 +38,7 @@ var (
 		"6_get-go-bin-cache",
 		"7_build_ocis_binary_for_testing",
 		"8_check-starlark",
+		"9_changelog",
 	}
 
 	env struct {
