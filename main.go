@@ -37,6 +37,7 @@ var (
 		"5_build-web-pnpm-cache",
 		"6_get-go-bin-cache",
 		"7_build_ocis_binary_for_testing",
+		"8_check-starlark",
 	}
 
 	env struct {
