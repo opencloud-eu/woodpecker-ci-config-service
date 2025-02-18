@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	libenv "github.com/caarlos0/env/v11"
 	"github.com/joho/godotenv"
 	"github.com/yaronf/httpsign"
 	"go.starlark.net/starlark"
@@ -21,13 +23,13 @@ import (
 )
 
 const (
-	ConfigLegacyStarFilePathname  = "testenv/conf/drone.legacy.star"
-	ConfigLegacyYamlFilePathname  = "testenv/conf/legacy/%s.yaml"
-	ConfigCleanedYamlFilePathname = "testenv/conf/clean/%s.yaml"
+	legacyStarFilePathname = "testenv/conf/drone.legacy.star"
+	legacyYamlFilePathname = "testenv/conf/legacy/%s.yaml"
+	workflowFilePathname   = "testenv/conf/clean/%s.yaml"
 )
 
 var (
-	WoodpeckerWorkflows = []string{
+	workflows = []string{
 		"1_coding-standard-php8.2",
 		"2_check-gherkin-standard",
 		"3_check-suites-in-expected-failures",
@@ -35,6 +37,11 @@ var (
 		"5_build-web-pnpm-cache",
 		"6_get-go-bin-cache",
 		"7_build_ocis_binary_for_testing",
+	}
+
+	env struct {
+		Host          string `env:"CONFIG_SERVICE_HOST"`
+		PublicKeyFile string `env:"CONFIG_SERVICE_PUBLIC_KEY_FILE"`
 	}
 )
 
@@ -45,22 +52,31 @@ type config struct {
 
 func init() {
 	// load environment variables from .envrc file
-	err := godotenv.Load(".envrc")
-	if err != nil {
+	switch err := godotenv.Overload(".envrc", ".env"); {
+	// it's fine if the file does not exist, maybe the environment variables are already set... who knows
+	case errors.Is(err, os.ErrNotExist):
+		break
+	case err != nil:
 		log.Fatalf("Error loading .env file: %v", err)
+	}
+
+	if err := libenv.ParseWithOptions(&env, libenv.Options{
+		RequiredIfNoDef: true,
+	}); err != nil {
+		log.Fatalf("Error processing environment variables: %v", err)
 	}
 
 	// build and persist star configurations...
 	// used for a step to step migration to the new configuration format
 	{
-		configs, err := transpileStarConfigs(ConfigLegacyStarFilePathname)
+		configs, err := transpileStarConfigs(legacyStarFilePathname)
 		if err != nil {
-			log.Fatalf("error building starlark configurations: %v", err)
+			log.Fatalf("Error building starlark configurations: %v", err)
 		}
 
 		for _, config := range configs {
-			if err := writeConfig(ConfigLegacyYamlFilePathname, config); err != nil {
-				log.Fatalf("error writing config: %v", err)
+			if err := writeWorkflow(legacyYamlFilePathname, config); err != nil {
+				log.Fatalf("Error writing config: %v", err)
 			}
 		}
 	}
@@ -136,7 +152,7 @@ func transpileStarConfigs(fileName string) ([]config, error) {
 	return configs, nil
 }
 
-func writeConfig(pn string, c config) error {
+func writeWorkflow(pn string, c config) error {
 	destination := fmt.Sprintf(pn, strings.ReplaceAll(c.Name, "/", "--"))
 	if err := os.MkdirAll(filepath.Dir(destination), 0770); err != nil {
 		return err
@@ -154,22 +170,22 @@ func writeConfig(pn string, c config) error {
 	return f.Close()
 }
 
-func loadConfig(pname, fname string) (config, error) {
-	f, err := os.ReadFile(fmt.Sprintf(pname, fname))
+func readWorkflow(p, name string) (config, error) {
+	f, err := os.ReadFile(fmt.Sprintf(p, name))
 	if err != nil {
 		return config{}, err
 	}
 
 	return config{
-		Name: fname,
+		Name: name,
 		Data: string(f),
 	}, nil
 }
 
-func loadConfigs(pname string, fnames []string) ([]config, error) {
+func readWorkflows(p string, names []string) ([]config, error) {
 	var configs []config
-	for _, fname := range fnames {
-		config, err := loadConfig(pname, fname)
+	for _, name := range names {
+		config, err := readWorkflow(p, name)
 		if err != nil {
 			return nil, err
 		}
@@ -180,7 +196,7 @@ func loadConfigs(pname string, fnames []string) ([]config, error) {
 	return configs, nil
 }
 
-func checkKeyHandler(pubKeyPath string) (func(http.HandlerFunc) http.HandlerFunc, error) {
+func requestVerifier(pubKeyPath string) (func(http.HandlerFunc) http.HandlerFunc, error) {
 	if pubKeyPath == "" {
 		return nil, fmt.Errorf("public key path is empty")
 	}
@@ -219,23 +235,25 @@ func checkKeyHandler(pubKeyPath string) (func(http.HandlerFunc) http.HandlerFunc
 }
 
 func main() {
-	keyCheckHandler, err := checkKeyHandler(os.Getenv("CONFIG_SERVICE_PUBLIC_KEY_FILE"))
+	verifier, err := requestVerifier(env.PublicKeyFile)
 	if err != nil {
 		log.Fatalf("Error on check key handler: %v", err)
 	}
 
-	http.HandleFunc("/ciconfig", keyCheckHandler(func(w http.ResponseWriter, r *http.Request) {
-		configs, err := loadConfigs(ConfigCleanedYamlFilePathname, WoodpeckerWorkflows)
+	http.HandleFunc("/ciconfig", verifier(func(w http.ResponseWriter, r *http.Request) {
+		configs, err := readWorkflows(workflowFilePathname, workflows)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 
 		w.WriteHeader(http.StatusOK)
-		err = json.NewEncoder(w).Encode(map[string]interface{}{"configs": configs})
+		if err = json.NewEncoder(w).Encode(map[string]interface{}{"configs": configs}); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+		}
 	}))
 
-	err = http.ListenAndServe(os.Getenv("CONFIG_SERVICE_HOST"), nil)
+	err = http.ListenAndServe(env.Host, nil)
 	if err != nil {
 		log.Fatalf("Error on listen: %v", err)
 	}

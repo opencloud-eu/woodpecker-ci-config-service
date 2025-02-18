@@ -1,8 +1,9 @@
-module github.com/fschade/woodpecker-config-service-starlark
+module github.com/opencloud-eu/woodpecker-ci-config-service
 
-go 1.23.5
+go 1.24
 
 require (
+	github.com/caarlos0/env/v11 v11.3.1
 	github.com/joho/godotenv v1.5.1
 	github.com/yaronf/httpsign v0.3.2
 	go.starlark.net v0.0.0-20250205221240-492d3672b3f4
