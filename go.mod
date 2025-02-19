@@ -16,6 +16,7 @@ require (
 	github.com/dunglas/httpsfv v1.0.2 // indirect
 	github.com/goccy/go-json v0.10.3 // indirect
 	github.com/google/go-cmp v0.6.0 // indirect
+	github.com/justinas/alice v1.2.0 // indirect
 	github.com/kr/pretty v0.1.0 // indirect
 	github.com/lestrrat-go/blackmagic v1.0.2 // indirect
 	github.com/lestrrat-go/httpcc v1.0.1 // indirect

@@ -1,20 +1,24 @@
 package main
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	libenv "github.com/caarlos0/env/v11"
 	"github.com/joho/godotenv"
+	"github.com/justinas/alice"
 	"github.com/yaronf/httpsign"
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
@@ -22,28 +26,13 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const (
-	legacyStarFilePathname = "testenv/conf/drone.legacy.star"
-	legacyYamlFilePathname = "testenv/conf/legacy/%s.yaml"
-	workflowFilePathname   = "testenv/conf/clean/%s.yaml"
-)
-
 var (
-	workflows = []string{
-		"1_coding-standard-php8.2",
-		"2_check-gherkin-standard",
-		"3_check-suites-in-expected-failures",
-		"4_build-web-cache",
-		"5_build-web-pnpm-cache",
-		"6_get-go-bin-cache",
-		"7_build_ocis_binary_for_testing",
-		"8_check-starlark",
-		"9_changelog",
-	}
-
 	env struct {
-		Host          string `env:"CONFIG_SERVICE_HOST"`
-		PublicKeyFile string `env:"CONFIG_SERVICE_PUBLIC_KEY_FILE"`
+		Host       string `env:"CONFIG_SERVICE_HOST" envDefault:":8080"`
+		PublicKey  string `env:"CONFIG_SERVICE_PUBLIC_KEY,required"`
+		ConfigDir  string `env:"CONFIG_SERVICE_CONFIG_DIR,required"`
+		LegacyConf string `env:"CONFIG_SERVICE_LEGACY_CONF"`
+		LegacyDir  string `env:"CONFIG_SERVICE_LEGACY_DIR"`
 	}
 )
 
@@ -59,27 +48,16 @@ func init() {
 	case errors.Is(err, os.ErrNotExist):
 		break
 	case err != nil:
-		log.Fatalf("Error loading .env file: %v", err)
+		must(fmt.Errorf("error loading .env file: %v", err))
 	}
 
-	if err := libenv.ParseWithOptions(&env, libenv.Options{
-		RequiredIfNoDef: true,
-	}); err != nil {
-		log.Fatalf("Error processing environment variables: %v", err)
-	}
+	must(libenv.Parse(&env))
 
 	// build and persist star configurations...
 	// used for a step to step migration to the new configuration format
-	{
-		configs, err := transpileStarConfigs(legacyStarFilePathname)
-		if err != nil {
-			log.Fatalf("Error building starlark configurations: %v", err)
-		}
-
-		for _, config := range configs {
-			if err := writeWorkflow(legacyYamlFilePathname, config); err != nil {
-				log.Fatalf("Error writing config: %v", err)
-			}
+	if env.LegacyConf != "" && env.LegacyDir != "" {
+		for _, config := range must1(transpileStarConfigs(env.LegacyConf)) {
+			must(writeWorkflow(filepath.Join(env.LegacyDir, config.Name+".yaml"), []byte(config.Data)))
 		}
 	}
 }
@@ -91,6 +69,7 @@ func transpileStarConfigs(fileName string) ([]config, error) {
 			log.Printf(msg)
 		},
 	}
+
 	globals, err := starlark.ExecFileOptions(syntax.LegacyFileOptions(), thread, fileName, nil, nil)
 	if err != nil {
 		return nil, fmt.Errorf("error executing file: %v", err)
@@ -145,7 +124,7 @@ func transpileStarConfigs(fileName string) ([]config, error) {
 		}
 		wf := wfb.String()
 		if err := yaml.Unmarshal([]byte(wf), &transport); err != nil {
-			log.Fatalf("error unmarshaling YAML: %v", err)
+			return nil, fmt.Errorf("error unmarshaling YAML: %v", err)
 		}
 
 		configs = append(configs, config{Name: transport.Name, Data: wf})
@@ -154,51 +133,67 @@ func transpileStarConfigs(fileName string) ([]config, error) {
 	return configs, nil
 }
 
-func writeWorkflow(pn string, c config) error {
-	destination := fmt.Sprintf(pn, strings.ReplaceAll(c.Name, "/", "--"))
-	if err := os.MkdirAll(filepath.Dir(destination), 0770); err != nil {
+func writeWorkflow(name string, b []byte) error {
+	if err := os.MkdirAll(filepath.Dir(name), 0770); err != nil {
 		return err
 	}
 
-	f, err := os.Create(destination)
+	f, err := os.Create(name)
 	if err != nil {
 		return err
 	}
 
-	if _, err = f.WriteString(c.Data); err != nil {
+	if _, err = f.Write(b); err != nil {
 		return err
 	}
 
 	return f.Close()
 }
 
-func readWorkflow(p, name string) (config, error) {
-	f, err := os.ReadFile(fmt.Sprintf(p, name))
+func readWorkflows(r string) ([]config, error) {
+	root, err := os.OpenRoot(r)
 	if err != nil {
-		return config{}, err
+		return nil, err
 	}
+	defer func() { _ = root.Close() }()
 
-	return config{
-		Name: name,
-		Data: string(f),
-	}, nil
-}
-
-func readWorkflows(p string, names []string) ([]config, error) {
 	var configs []config
-	for _, name := range names {
-		config, err := readWorkflow(p, name)
+	if err := fs.WalkDir(root.FS(), ".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return nil, err
+			return err
 		}
 
-		configs = append(configs, config)
+		// check if it is a supported file, otherwise skip
+		if d.IsDir() || !slices.Contains([]string{".yaml", ".yml"}, filepath.Ext(d.Name())) {
+			return nil
+		}
+
+		f, err := root.Open(path)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = f.Close() }()
+
+		buf := new(bytes.Buffer)
+		if _, err := buf.ReadFrom(f); err != nil {
+			return err
+		}
+
+		configs = append(configs, config{
+			Name: strings.TrimSuffix(d.Name(), filepath.Ext(d.Name())),
+			Data: buf.String(),
+		})
+
+		return nil
+	}); err != nil {
+		return nil, err
 	}
 
 	return configs, nil
 }
 
-func requestVerifier(pubKeyPath string) (func(http.HandlerFunc) http.HandlerFunc, error) {
+// verifierMiddleware is a middleware that verifies the given request signature
+func verifierMiddleware(pubKeyPath string) (func(http.Handler) http.Handler, error) {
 	if pubKeyPath == "" {
 		return nil, fmt.Errorf("public key path is empty")
 	}
@@ -224,26 +219,57 @@ func requestVerifier(pubKeyPath string) (func(http.HandlerFunc) http.HandlerFunc
 		httpsign.Headers("@request-target", "content-digest"),
 	)
 
-	return func(next http.HandlerFunc) http.HandlerFunc {
-		return func(w http.ResponseWriter, r *http.Request) {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if err := httpsign.VerifyRequest("woodpecker-ci-extensions", *verifier, r); err != nil {
 				http.Error(w, "Invalid signature", http.StatusBadRequest)
 				return
 			}
 
 			next.ServeHTTP(w, r)
-		}
+		})
 	}, nil
 }
 
-func main() {
-	verifier, err := requestVerifier(env.PublicKeyFile)
+// allowedMethodsMiddleware is a middleware that checks if the given request method is allowed
+func allowedMethodsMiddleware(methods ...string) (func(http.Handler) http.Handler, error) {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !slices.Contains(methods, r.Method) {
+				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}, nil
+}
+
+// must is a helper that panics if the error is not nil
+func must(err error) {
 	if err != nil {
-		log.Fatalf("Error on check key handler: %v", err)
+		log.Fatal(err)
+	}
+}
+
+// must1 is a helper that panics if the error is not nil
+func must1[T any](t T, err error) T {
+	if err != nil {
+		must(err)
 	}
 
-	http.HandleFunc("/ciconfig", verifier(func(w http.ResponseWriter, r *http.Request) {
-		configs, err := readWorkflows(workflowFilePathname, workflows)
+	return t
+}
+
+func main() {
+	verifier := must1(verifierMiddleware(env.PublicKey))
+	allowedMethods := must1(allowedMethodsMiddleware(http.MethodPost))
+
+	http.Handle("/ciconfig", alice.New(
+		allowedMethods,
+		verifier,
+	).ThenFunc(func(w http.ResponseWriter, r *http.Request) {
+		configs, err := readWorkflows(env.ConfigDir)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
@@ -255,8 +281,5 @@ func main() {
 		}
 	}))
 
-	err = http.ListenAndServe(env.Host, nil)
-	if err != nil {
-		log.Fatalf("Error on listen: %v", err)
-	}
+	must(http.ListenAndServe(env.Host, http.DefaultServeMux))
 }
