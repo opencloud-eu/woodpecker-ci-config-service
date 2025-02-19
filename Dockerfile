@@ -1,14 +1,16 @@
 # syntax=docker/dockerfile:1
 
 FROM golang:1.24-alpine AS build
+ARG TARGETARCH
 
 WORKDIR /opencloud-eu/woodpecker-config-service
 
 COPY go.mod go.sum ./
 RUN go mod download
 
+COPY testenv/conf/clean ./testenv/conf/clean
 COPY main.go ./
-RUN go build -o bin/woodpecker-config-service .
+RUN GOOS=linux GOARCH="${TARGETARCH}" go build -o bin/woodpecker-config-service .
 
 FROM alpine:3.21
 

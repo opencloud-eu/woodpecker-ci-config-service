@@ -37,9 +37,9 @@ export ENV_SECRET_DRONE_HTTP_PROXY=
 export ENV_SECRET_GITHUB_USERNAME=
 export ENV_SECRET_GITHUB_TOKEN=
 
-
-# export CONFIG_SERVICE_HOST=:8080 # optional
-export CONFIG_SERVICE_PUBLIC_KEY=
-export CONFIG_SERVICE_CONFIG_DIR=
-export CONFIG_SERVICE_LEGACY_CONF=
-export CONFIG_SERVICE_LEGACY_DIR=
+# export CONFIG_SERVICE_HOST= # optional, default: :8080
+# export CONFIG_SERVICE_PUBLIC_KEY= # optional, recommended
+# export CONFIG_SERVICE_CONFIG_DIR= # optional, defaults are built-in
+# export CONFIG_SERVICE_LEGACY_CONF= # optional
+# export CONFIG_SERVICE_LEGACY_DIR= # optional
+# export CONFIG_SERVICE_ALLOWED_METHODS= # optional, default: POST

@@ -5,6 +5,7 @@ go 1.24
 require (
 	github.com/caarlos0/env/v11 v11.3.1
 	github.com/joho/godotenv v1.5.1
+	github.com/justinas/alice v1.2.0
 	github.com/yaronf/httpsign v0.3.2
 	go.starlark.net v0.0.0-20250205221240-492d3672b3f4
 	gopkg.in/yaml.v3 v3.0.1
@@ -16,7 +17,6 @@ require (
 	github.com/dunglas/httpsfv v1.0.2 // indirect
 	github.com/goccy/go-json v0.10.3 // indirect
 	github.com/google/go-cmp v0.6.0 // indirect
-	github.com/justinas/alice v1.2.0 // indirect
 	github.com/kr/pretty v0.1.0 // indirect
 	github.com/lestrrat-go/blackmagic v1.0.2 // indirect
 	github.com/lestrrat-go/httpcc v1.0.1 // indirect

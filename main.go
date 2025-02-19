@@ -10,7 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -29,11 +29,12 @@ import (
 
 var (
 	env struct {
-		Host       string `env:"CONFIG_SERVICE_HOST" envDefault:":8080"`
-		PublicKey  string `env:"CONFIG_SERVICE_PUBLIC_KEY,required"`
-		ConfigDir  string `env:"CONFIG_SERVICE_CONFIG_DIR"`
-		LegacyConf string `env:"CONFIG_SERVICE_LEGACY_CONF"`
-		LegacyDir  string `env:"CONFIG_SERVICE_LEGACY_DIR"`
+		Host           string   `env:"CONFIG_SERVICE_HOST" envDefault:":8080"`
+		PublicKey      string   `env:"CONFIG_SERVICE_PUBLIC_KEY"`
+		ConfigDir      string   `env:"CONFIG_SERVICE_CONFIG_DIR"`
+		LegacyConf     string   `env:"CONFIG_SERVICE_LEGACY_CONF"`
+		LegacyDir      string   `env:"CONFIG_SERVICE_LEGACY_DIR"`
+		AllowedMethods []string `env:"CONFIG_SERVICE_ALLOWED_METHODS" envDefault:"POST"`
 	}
 
 	//go:embed testenv/conf/clean/*
@@ -70,7 +71,7 @@ func transpileStarConfigs(fileName string) ([]config, error) {
 	thread := &starlark.Thread{
 		Name: "drone",
 		Print: func(_ *starlark.Thread, msg string) {
-			log.Printf(msg)
+			slog.Info(msg)
 		},
 	}
 
@@ -246,7 +247,8 @@ func allowedMethodsMiddleware(methods ...string) (func(http.Handler) http.Handle
 // must is a helper that panics if the error is not nil
 func must(err error) {
 	if err != nil {
-		log.Fatal(err)
+		slog.Error("", err)
+		os.Exit(1)
 	}
 }
 
@@ -260,9 +262,6 @@ func must1[T any](t T, err error) T {
 }
 
 func main() {
-	verifier := must1(verifierMiddleware(env.PublicKey))
-	allowedMethods := must1(allowedMethodsMiddleware(http.MethodPost))
-
 	var configFS fs.FS
 	switch {
 	case env.ConfigDir != "":
@@ -271,10 +270,18 @@ func main() {
 		configFS = embeddedConfigFS
 	}
 
-	http.Handle("/ciconfig", alice.New(
-		allowedMethods,
-		verifier,
-	).ThenFunc(func(w http.ResponseWriter, r *http.Request) {
+	middlewares := []alice.Constructor{
+		must1(allowedMethodsMiddleware(env.AllowedMethods...)),
+	}
+
+	switch env.PublicKey {
+	case "":
+		slog.Warn("public key is empty, incoming requests will not be verified, be careful!")
+	default:
+		middlewares = append(middlewares, must1(verifierMiddleware(env.PublicKey)))
+	}
+
+	http.Handle("/ciconfig", alice.New(middlewares...).ThenFunc(func(w http.ResponseWriter, r *http.Request) {
 		configs, err := readWorkflows(configFS)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
