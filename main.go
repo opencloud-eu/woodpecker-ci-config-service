@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"crypto/x509"
+	"embed"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
@@ -30,10 +31,13 @@ var (
 	env struct {
 		Host       string `env:"CONFIG_SERVICE_HOST" envDefault:":8080"`
 		PublicKey  string `env:"CONFIG_SERVICE_PUBLIC_KEY,required"`
-		ConfigDir  string `env:"CONFIG_SERVICE_CONFIG_DIR,required"`
+		ConfigDir  string `env:"CONFIG_SERVICE_CONFIG_DIR"`
 		LegacyConf string `env:"CONFIG_SERVICE_LEGACY_CONF"`
 		LegacyDir  string `env:"CONFIG_SERVICE_LEGACY_DIR"`
 	}
+
+	//go:embed testenv/conf/clean/*
+	embeddedConfigFS embed.FS
 )
 
 type config struct {
@@ -150,15 +154,9 @@ func writeWorkflow(name string, b []byte) error {
 	return f.Close()
 }
 
-func readWorkflows(r string) ([]config, error) {
-	root, err := os.OpenRoot(r)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = root.Close() }()
-
+func readWorkflows(rfs fs.FS) ([]config, error) {
 	var configs []config
-	if err := fs.WalkDir(root.FS(), ".", func(path string, d fs.DirEntry, err error) error {
+	if err := fs.WalkDir(rfs, ".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -168,7 +166,7 @@ func readWorkflows(r string) ([]config, error) {
 			return nil
 		}
 
-		f, err := root.Open(path)
+		f, err := rfs.Open(path)
 		if err != nil {
 			return err
 		}
@@ -265,11 +263,19 @@ func main() {
 	verifier := must1(verifierMiddleware(env.PublicKey))
 	allowedMethods := must1(allowedMethodsMiddleware(http.MethodPost))
 
+	var configFS fs.FS
+	switch {
+	case env.ConfigDir != "":
+		configFS = os.DirFS(env.ConfigDir)
+	default:
+		configFS = embeddedConfigFS
+	}
+
 	http.Handle("/ciconfig", alice.New(
 		allowedMethods,
 		verifier,
 	).ThenFunc(func(w http.ResponseWriter, r *http.Request) {
-		configs, err := readWorkflows(env.ConfigDir)
+		configs, err := readWorkflows(configFS)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
