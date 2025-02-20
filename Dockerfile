@@ -9,7 +9,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY testenv/conf/clean ./testenv/conf/clean
-COPY main.go ./
+COPY *.go ./
 RUN GOOS=linux GOARCH="${TARGETARCH}" go build -o bin/woodpecker-config-service .
 
 FROM alpine:3.21
