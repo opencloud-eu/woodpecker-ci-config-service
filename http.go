@@ -34,6 +34,8 @@ func configurationHandler(providers []ConfigurationProvider) http.Handler {
 			}
 
 			for _, config := range configs {
+				// if the configuration already exists, we will overwrite it
+				// not the best solution, but it will work for now
 				configurations[config.Name] = config
 			}
 		}
@@ -43,7 +45,7 @@ func configurationHandler(providers []ConfigurationProvider) http.Handler {
 		})
 
 		// there is no guarantee that any of the available providers will return a configuration
-		// woodpecker by default expects a 204 response in this case to fall back to the next provider
+		// woodpecker by default expects a 204 response in this case to fall back to the repository woodpecker configurations
 		if len(configs) == 0 {
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -51,11 +53,8 @@ func configurationHandler(providers []ConfigurationProvider) http.Handler {
 
 		if err := json.NewEncoder(w).Encode(map[string]interface{}{"configs": configs}); err != nil {
 			slog.Error(err.Error())
-			http.Error(w, "Failed to render configs", http.StatusInternalServerError)
 			return
 		}
-
-		w.WriteHeader(http.StatusOK)
 	})
 }
 

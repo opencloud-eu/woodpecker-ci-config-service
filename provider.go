@@ -85,14 +85,13 @@ func (p StarlarkProvider) Get(ce ConfigurationEnvironment) ([]Configuration, err
 			return nil, err
 		}
 
-		var transport struct {
-			Name string
-		}
-		if err := yaml.Unmarshal(buf.Bytes(), &transport); err != nil {
+		var configuration Configuration
+		if err := yaml.Unmarshal(buf.Bytes(), &configuration); err != nil {
 			return nil, fmt.Errorf("error unmarshaling YAML: %v", err)
 		}
+		configuration.Data = buf.String()
 
-		configurations = append(configurations, Configuration{Name: transport.Name, Data: buf.String()})
+		configurations = append(configurations, configuration)
 	}
 
 	return configurations, nil
