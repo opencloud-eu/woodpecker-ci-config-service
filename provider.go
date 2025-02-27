@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -71,13 +72,19 @@ func (p StarlarkProvider) Get(ce ConfigurationEnvironment) ([]Configuration, err
 	hacky = strings.ReplaceAll(hacky, "True", "true")
 	hacky = strings.ReplaceAll(hacky, "None", "[]")
 
-	var workflows []interface{}
+	var workflows []map[string]interface{}
 	if err := json.Unmarshal([]byte(hacky), &workflows); err != nil {
 		return nil, err
 	}
 
 	var configurations []Configuration
 	for _, workflow := range workflows {
+		name, ok := workflow["name"].(string)
+		if !ok {
+			return nil, errors.New("workflow name is missing")
+		}
+		delete(workflow, "name")
+
 		buf := new(bytes.Buffer)
 		enc := yaml.NewEncoder(buf)
 		enc.SetIndent(2)
@@ -85,13 +92,10 @@ func (p StarlarkProvider) Get(ce ConfigurationEnvironment) ([]Configuration, err
 			return nil, err
 		}
 
-		var configuration Configuration
-		if err := yaml.Unmarshal(buf.Bytes(), &configuration); err != nil {
-			return nil, fmt.Errorf("error unmarshaling YAML: %v", err)
-		}
-		configuration.Data = buf.String()
-
-		configurations = append(configurations, configuration)
+		configurations = append(configurations, Configuration{
+			Name: name,
+			Data: buf.String(),
+		})
 	}
 
 	return configurations, nil
