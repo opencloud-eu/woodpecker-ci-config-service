@@ -27,12 +27,7 @@ func configurationHandler(logger *slog.Logger, converters []Converter, providers
 			return
 		}
 
-		// if the repository does not have a configuration,
-		// woodpecker should fall back to its default behavior
-		if env.Repo.Config == "" {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
+		logger.Debug(fmt.Sprintf("Start configuration service for %s", env.Repo.Name))
 
 		var configurations []File
 		for _, provider := range providers {
@@ -76,6 +71,7 @@ func configurationHandler(logger *slog.Logger, converters []Converter, providers
 		// there is no guarantee that any of the available providers will return a configuration
 		// woodpecker by default expects a 204 response in this case to fall back to the repository woodpecker configurations
 		if len(configurations) == 0 {
+			logger.Debug(fmt.Sprintf("No configurations found for %s, woodpecker takes over", env.Repo.Name))
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
@@ -97,6 +93,7 @@ func configurationHandler(logger *slog.Logger, converters []Converter, providers
 			return
 		}
 
+		logger.Debug(fmt.Sprintf("Sucessfully fetched configurations for %s, start pipeline", env.Repo.Name))
 		if err := json.NewEncoder(w).Encode(map[string]interface{}{"configs": configurations}); err != nil {
 			logger.Error(err.Error())
 			return
