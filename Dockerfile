@@ -8,7 +8,6 @@ WORKDIR /opencloud-eu/woodpecker-config-service
 COPY go.mod go.sum ./
 RUN go mod download
 
-COPY testenv/conf/clean ./testenv/conf/clean
 COPY *.go ./
 RUN GOOS=linux GOARCH="${TARGETARCH}" go build -o bin/woodpecker-config-service .
 
