@@ -2,158 +2,136 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
-	"path/filepath"
-	"slices"
-	"strings"
+	"os"
 
-	"github.com/samber/lo"
-	"go.starlark.net/starlark"
-	"go.starlark.net/starlarkstruct"
-	"go.starlark.net/syntax"
-	"gopkg.in/yaml.v3"
+	"go.woodpecker-ci.org/woodpecker/v3/server/forge"
+	"go.woodpecker-ci.org/woodpecker/v3/server/forge/github"
+	"go.woodpecker-ci.org/woodpecker/v3/server/model"
+	"golang.org/x/sync/errgroup"
 )
 
-// StarlarkProvider is a provider that reads, transpiles and migrates Starlark configuration files.
-type StarlarkProvider struct {
-	log *slog.Logger
+type ProviderType string
+
+const (
+	ProviderTypeForge ProviderType = "forge"
+	ProviderTypeFS    ProviderType = "fs"
+)
+
+// ForgeProvider wraps available woodpecker forges
+type ForgeProvider struct {
+	logger *slog.Logger
+	forges map[model.ForgeType]forge.Forge
 }
 
-// NewStarlarkLocalProvider returns a new StarlarkProvider.
-func NewStarlarkLocalProvider(log *slog.Logger) StarlarkProvider {
-	return StarlarkProvider{log: log}
-}
+// NewForgeProvider returns a new ForgeProvider
+func NewForgeProvider(logger *slog.Logger) (ForgeProvider, error) {
+	forgeTypeGithub, err := github.New(github.Opts{
+		URL:      "https://github.com",
+		MergeRef: true,
+	})
+	if err != nil {
+		return ForgeProvider{}, err
+	}
 
-// Get reads, transpiles and migrates Starlark configuration files to the required format.
-func (p StarlarkProvider) Get(ce ConfigurationEnvironment) ([]Configuration, error) {
-	thread := &starlark.Thread{
-		Name: "drone",
-		Print: func(_ *starlark.Thread, msg string) {
-			p.log.Info(msg)
+	return ForgeProvider{
+		logger: logger,
+		forges: map[model.ForgeType]forge.Forge{
+			model.ForgeTypeGithub: forgeTypeGithub,
 		},
+	}, nil
+}
+
+// Get returns the configuration file for the given environment
+func (p ForgeProvider) Get(ctx context.Context, env Environment) ([]File, error) {
+	f, ok := p.forges[env.Netrc.Type]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrUnknownType, env.Netrc.Type)
 	}
 
-	globals, err := starlark.ExecFileOptions(syntax.LegacyFileOptions(), thread, ce.Repo.Config, nil, nil)
+	if env.Repo.Config == "" {
+		return nil, ErrNoConfig
+	}
+
+	data, err := f.File(ctx, &model.User{
+		AccessToken: env.Netrc.Login,
+	}, env.Repo, env.Pipeline,
+		// ce.Repo.Config must point to a configuration file, globs are not supported yet
+		env.Repo.Config)
 	if err != nil {
-		return nil, fmt.Errorf("error executing file: %v", err)
-	}
-
-	v, err := starlark.Call(thread, globals["main"], []starlark.Value{
-		starlarkstruct.FromStringDict(
-			starlark.String("context"),
-			starlark.StringDict{
-				"repo": starlarkstruct.FromStringDict(starlark.String("repo"), starlark.StringDict{
-					"name": starlark.String("name"),
-					"slug": starlark.String("slug"),
-				}),
-				"build": starlarkstruct.FromStringDict(starlark.String("build"), starlark.StringDict{
-					"event":       starlark.String("event"),
-					"title":       starlark.String("title"),
-					"commit":      starlark.String("commit"),
-					"ref":         starlark.String("ref"),
-					"target":      starlark.String("target"),
-					"source":      starlark.String("source"),
-					"source_repo": starlark.String("source_repo"),
-				}),
-			},
-		),
-	}, nil)
-	if err != nil {
-		return nil, fmt.Errorf("error building conf: %v", err)
-	}
-
-	// toDo: shame on me....
-	hacky := v.String()
-	hacky = strings.ReplaceAll(hacky, "False", "false")
-	hacky = strings.ReplaceAll(hacky, "True", "true")
-	hacky = strings.ReplaceAll(hacky, "None", "[]")
-
-	var workflows []map[string]interface{}
-	if err := json.Unmarshal([]byte(hacky), &workflows); err != nil {
 		return nil, err
 	}
 
-	var configurations []Configuration
-	for _, workflow := range workflows {
-		name, ok := workflow["name"].(string)
-		if !ok {
-			return nil, errors.New("workflow name is missing")
-		}
-		delete(workflow, "name")
-
-		buf := new(bytes.Buffer)
-		enc := yaml.NewEncoder(buf)
-		enc.SetIndent(2)
-		if err := enc.Encode(workflow); err != nil {
-			return nil, err
-		}
-
-		configurations = append(configurations, Configuration{
-			Name: name,
-			Data: buf.String(),
-		})
-	}
-
-	return configurations, nil
+	return []File{{
+		Name: env.Repo.Config,
+		Data: data,
+	}}, nil
 }
 
-// FSProvider is a provider that reads configuration files from the file system.
+// FSProvider provides configuration files from the filesystem
 type FSProvider struct {
-	fs         fs.FS
-	extensions []string
+	logger *slog.Logger
+	glob   string
+	fs     fs.FS
 }
 
-// NewFSProvider returns a new FSProvider.
-func NewFSProvider(fsys fs.FS, extensions []string) FSProvider {
+// NewFSProvider returns a new FSProvider
+func NewFSProvider(dir, glob string, logger *slog.Logger) (FSProvider, error) {
+	dirFS := os.DirFS(dir)
+	info, err := fs.Stat(dirFS, ".")
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return FSProvider{}, fmt.Errorf("CONFIG_SERVICE_PROVIDER_FS_SOURCE does not exist: %s", dir)
+	case err != nil:
+		return FSProvider{}, err
+	}
+
+	if !info.IsDir() {
+		return FSProvider{}, fmt.Errorf("CONFIG_SERVICE_PROVIDER_FS_SOURCE is not a directory: %s", dir)
+	}
+
 	return FSProvider{
-		fs:         fsys,
-		extensions: lo.Uniq(append([]string{".yml", ".yaml"}, extensions...)),
-	}
+		logger: logger,
+		glob:   glob,
+		fs:     dirFS,
+	}, err
 }
 
-// Get reads configuration files from the file system.
-func (p FSProvider) Get(ce ConfigurationEnvironment) ([]Configuration, error) {
-	// toDo: this is a hack which will go away once the new configuration can be build with Starlark
-	// it should skip the provider if the pipeline path is not set to PROVIDER_FS_MIGRATION_PROCESS
-	if ce.Repo.Config != "PROVIDER_FS_MIGRATION_PROCESS" {
-		return nil, nil
-	}
-
-	var configurations []Configuration
-	if err := fs.WalkDir(p.fs, ".", func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-
-		// check if the file is a supported file, otherwise skip
-		if d.IsDir() || !slices.Contains(p.extensions, filepath.Ext(d.Name())) {
-			return nil
-		}
-
-		f, err := p.fs.Open(path)
-		if err != nil {
-			return err
-		}
-		defer func() { _ = f.Close() }()
-
-		buf := new(bytes.Buffer)
-		if _, err := buf.ReadFrom(f); err != nil {
-			return err
-		}
-
-		configurations = append(configurations, Configuration{
-			Name: strings.TrimSuffix(d.Name(), filepath.Ext(d.Name())),
-			Data: buf.String(),
-		})
-
-		return nil
-	}); err != nil {
+// Get returns the configuration file for the given environment
+func (p FSProvider) Get(_ context.Context, _ Environment) ([]File, error) {
+	paths, err := fs.Glob(p.fs, p.glob)
+	if err != nil {
 		return nil, err
 	}
 
-	return configurations, nil
+	var files []File
+	var eg errgroup.Group
+	for _, fp := range paths {
+		eg.Go(func() error {
+			f, err := p.fs.Open(fp)
+			if err != nil {
+				return err
+			}
+			defer func() { _ = f.Close() }()
+
+			buf := new(bytes.Buffer)
+			if _, err := buf.ReadFrom(f); err != nil {
+				return err
+			}
+
+			files = append(files, File{
+				Name: fp,
+				Data: buf.Bytes(),
+			})
+
+			return nil
+		})
+	}
+
+	err = eg.Wait()
+	return files, err
 }

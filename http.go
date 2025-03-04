@@ -5,54 +5,100 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"slices"
+	"strings"
 
 	"github.com/samber/lo"
 	"github.com/yaronf/httpsign"
 )
 
-func configurationHandler(providers []ConfigurationProvider) http.Handler {
+func configurationHandler(logger *slog.Logger, converters []Converter, providers []Provider) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var ce ConfigurationEnvironment
-		if err := json.NewDecoder(r.Body).Decode(&ce); err != nil {
-			slog.Error(err.Error())
+		var env Environment
+		if err := json.NewDecoder(r.Body).Decode(&env); err != nil {
+			logger.Error(err.Error())
 			http.Error(w, "Failed to decode request", http.StatusBadRequest)
 			return
 		}
 
-		var configurations = make(map[string]Configuration)
-		for _, provider := range providers {
-			configs, err := provider.Get(ce)
-			if err != nil {
-				slog.Error(err.Error())
-				http.Error(w, "Failed to get configs", http.StatusInternalServerError)
-				return
-			}
-
-			for _, config := range configs {
-				// if the configuration already exists, we will overwrite it
-				// not the best solution, but it will work for now
-				configurations[config.Name] = config
-			}
-		}
-
-		configs := lo.MapToSlice(configurations, func(_ string, c Configuration) Configuration {
-			return c
-		})
-
-		// there is no guarantee that any of the available providers will return a configuration
-		// woodpecker by default expects a 204 response in this case to fall back to the repository woodpecker configurations
-		if len(configs) == 0 {
+		// if the repository does not have a configuration,
+		// woodpecker should fall back to its default behavior
+		if env.Repo.Config == "" {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 
-		if err := json.NewEncoder(w).Encode(map[string]interface{}{"configs": configs}); err != nil {
-			slog.Error(err.Error())
+		var configurations []File
+		for _, provider := range providers {
+			providerFiles, err := provider.Get(r.Context(), env)
+			switch {
+			// not having a configuration is not a critical error per se...
+			case errors.Is(err, ErrNoConfig):
+				fallthrough
+			// not knowing the type is not a critical error per se...
+			case errors.Is(err, ErrUnknownType):
+				// ... ignore the error and continue
+				continue
+			case err != nil:
+				logger.Error(err.Error())
+				http.Error(w, "Failed to get config", http.StatusInternalServerError)
+				return
+			}
+
+			configurations = append(configurations, providerFiles...)
+		}
+
+		for i, configuration := range configurations {
+			for _, converter := range converters {
+				if !converter.Compatible(configuration) {
+					continue
+				}
+
+				results, err := converter.Convert(configuration, env)
+				if err != nil {
+					logger.Error(err.Error())
+					http.Error(w, "Failed to get configs", http.StatusInternalServerError)
+					return
+				}
+
+				configurations = append(configurations[:i], configurations[i+1:]...)
+				configurations = append(configurations, results...)
+				break // only one converter should be used
+			}
+		}
+
+		// there is no guarantee that any of the available providers will return a configuration
+		// woodpecker by default expects a 204 response in this case to fall back to the repository woodpecker configurations
+		if len(configurations) == 0 {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		// cleanup configuration names
+		for i, configuration := range configurations {
+			configuration.Name = strings.Replace(configuration.Name, "/", "__", -1)
+			configuration.Name = strings.TrimSuffix(configuration.Name, filepath.Ext(configuration.Name))
+			configurations[i] = configuration
+		}
+
+		if duplicates := lo.FindDuplicatesBy(configurations, func(f File) string {
+			return f.Name
+		}); len(duplicates) != 0 {
+			logger.Error(fmt.Sprintf("duplicate configuration files found: %v", lo.Map(duplicates, func(f File, _ int) string {
+				return f.Name
+			})))
+			http.Error(w, "Duplicate configuration files found", http.StatusInternalServerError)
+			return
+		}
+
+		if err := json.NewEncoder(w).Encode(map[string]interface{}{"configs": configurations}); err != nil {
+			logger.Error(err.Error())
 			return
 		}
 	})
