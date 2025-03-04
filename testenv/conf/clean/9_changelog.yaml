@@ -1,3 +1,4 @@
+name: changelog
 steps:
   - commands:
       - make -C ocis changelog
@@ -16,14 +17,14 @@ steps:
       - cat CHANGELOG.md
     image: owncloudci/alpine:latest
     name: output
-  - image: quay.io/thegeeklab/wp-git-action
+  - image: plugins/git-action:1
     name: publish
     settings:
-      action:
+      actions:
         - commit
         - push
-      author_email: devops@opencloud-eu.com
-      author_name: openClouders
+      author_email: devops@owncloud.com
+      author_name: ownClouders
       branch: master
       message: Automated changelog update [skip ci]
       netrc_machine: github.com
@@ -32,8 +33,13 @@ steps:
       netrc_username:
         from_secret: github_username
     when:
-      - branch:
-        include: [main, release/*]
-        exclude: [refs/pull/**]
+      - branch: main
+        event:
+          - push
+          - manual
 when:
-  - evaluate: 'ENV_WORKFLOW_SKIP_9_CHANGELOG != "true"' # TODO
+  - branch: main
+    event:
+      - push
+      - manual
+  - event: pull_request

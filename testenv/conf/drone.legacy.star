@@ -43,17 +43,18 @@ DEFAULT_PHP_VERSION = "8.2"
 DEFAULT_NODEJS_VERSION = "20"
 
 dirs = {
-  "base": "/drone/src",
-  "web": "/drone/src/webTestRunner",
-  "zip": "/drone/src/zip",
-  "webZip": "/drone/src/zip/web.tar.gz",
-  "webPnpmZip": "/drone/src/zip/pnpm-store.tar.gz",
+  "base": "/woodpecker/src/github.com/opencloud-eu/opencloud",
+  "web": "/woodpecker/src/github.com/opencloud-eu/opencloud/webTestRunner",
+  "zip": "/woodpecker/src/github.com/opencloud-eu/opencloud/zip",
+  "webZip": "/woodpecker/src/github.com/opencloud-eu/opencloud/zip/web.tar.gz",
+  "webPnpmZip": "/woodpecker/src/github.com/opencloud-eu/opencloud/zip/pnpm-store.tar.gz",
+  "baseGo": "/go/src/github.com/opencloud-eu/opencloud",
   "gobinTar": "go-bin.tar.gz",
-  "gobinTarPath": "/drone/src/go-bin.tar.gz",
+  "gobinTarPath": "/go/src/github.com/opencloud-eu/opencloud/go-bin.tar.gz",
   "ocisConfig": "tests/config/drone/ocis-config.json",
-  "ocis": "/srv/app/tmp/ocis",
-  "ocisRevaDataRoot": "/srv/app/tmp/ocis/owncloud/data",
-  "ocisWrapper": "/drone/src/tests/ociswrapper",
+  "ocis": "/woodpecker/src/github.com/opencloud-eu/opencloud/srv/app/tmp/ocis",
+  "ocisRevaDataRoot": "/woodpecker/src/github.com/opencloud-eu/opencloud/srv/app/tmp/ocis/owncloud/data",
+  "ocisWrapper": "/woodpecker/src/github.com/opencloud-eu/opencloud/tests/ociswrapper",
   "bannedPasswordList": "tests/config/drone/banned-password-list.txt",
   "ocmProviders": "tests/config/drone/providers.json",
 }
@@ -106,7 +107,7 @@ config = {
         "OCIS_ADD_RUN_SERVICES": "notifications",
         "NOTIFICATIONS_SMTP_HOST": "email",
         "NOTIFICATIONS_SMTP_PORT": "2500",
-        "NOTIFICATIONS_SMTP_INSECURE": "true",
+        "NOTIFICATIONS_SMTP_INSECURE": True,
         "NOTIFICATIONS_SMTP_SENDER": "ownCloud <noreply@example.com>",
         "NOTIFICATIONS_DEBUG_ADDR": "0.0.0.0:9174",
       },
@@ -199,7 +200,7 @@ config = {
         "OCIS_ADD_RUN_SERVICES": "notifications",
         "NOTIFICATIONS_SMTP_HOST": "email",
         "NOTIFICATIONS_SMTP_PORT": "2500",
-        "NOTIFICATIONS_SMTP_INSECURE": "true",
+        "NOTIFICATIONS_SMTP_INSECURE": True,
         "NOTIFICATIONS_SMTP_SENDER": "ownCloud <noreply@example.com>",
         "NOTIFICATIONS_DEBUG_ADDR": "0.0.0.0:9174",
       },
@@ -248,7 +249,7 @@ config = {
         # mail notifications
         "NOTIFICATIONS_SMTP_HOST": "email",
         "NOTIFICATIONS_SMTP_PORT": "2500",
-        "NOTIFICATIONS_SMTP_INSECURE": "true",
+        "NOTIFICATIONS_SMTP_INSECURE": True,
         "NOTIFICATIONS_SMTP_SENDER": "ownCloud <noreply@example.com>",
       },
     },
@@ -334,20 +335,12 @@ config = {
   "codestyle": True,
 }
 
-# volume for steps to cache Go dependencies between steps of a pipeline
-# GOPATH must be set to /go inside the image, which is the case
-stepVolumeGo = \
-  {
-    "name": "gopath",
-    "path": "/go",
-  }
-
-# volume for pipeline to cache Go dependencies between steps of a pipeline
+# workspace for pipeline to cache Go dependencies between steps of a pipeline
 # to be used in combination with stepVolumeGo
-pipelineVolumeGo = \
+workspace = \
   {
-    "name": "gopath",
-    "temp": {},
+    "base": "/go",
+    "path": "src/github.com/opencloud-eu/opencloud/",
   }
 
 # minio mc environment variables
@@ -470,20 +463,18 @@ def main(ctx):
 
 def cachePipeline(name, steps):
   return {
-    "kind": "pipeline",
-    "type": "docker",
     "name": "build-%s-cache" % name,
-    "clone": {
-      "disable": True,
-    },
+    "skip_clone": True,
     "steps": steps,
-    "trigger": {
-      "ref": [
-        "refs/heads/master",
-        "refs/tags/**",
-        "refs/pull/**",
-      ],
-    },
+    "when": [
+      {
+        "event": ["push", "manual"],
+        "branch": ["main", "stable-*"]
+      },
+      {
+        "event": "pull_request",
+      },
+    ],
   }
 
 def buildWebCache(ctx):
@@ -535,24 +526,20 @@ def testPipelines(ctx):
 
 def getGoBinForTesting(ctx):
   return [{
-    "kind": "pipeline",
-    "type": "docker",
     "name": "get-go-bin-cache",
-    "platform": {
-      "os": "linux",
-      "arch": "amd64",
-    },
     "steps": skipIfUnchanged(ctx, "unit-tests") +
              checkGoBinCache() +
              cacheGoBin(),
-    "trigger": {
-      "ref": [
-        "refs/heads/master",
-        "refs/heads/stable-*",
-        "refs/pull/**",
-      ],
-    },
-    "volumes": [pipelineVolumeGo],
+    "when": [
+      {
+        "event": ["push", "manual"],
+        "branch": ["main", "stable-*"]
+      },
+      {
+        "event": "pull_request",
+      },
+    ],
+    "workspace": workspace,
   }]
 
 def checkGoBinCache():
@@ -568,7 +555,7 @@ def checkGoBinCache():
       },
     },
     "commands": [
-      "bash -x %s/tests/config/drone/check_go_bin_cache.sh %s %s" % (dirs["base"], dirs["base"], dirs["gobinTar"]),
+      "bash -x %s/tests/config/drone/check_go_bin_cache.sh %s %s" % (dirs["baseGo"], dirs["baseGo"], dirs["gobinTar"]),
       ],
   }]
 
@@ -580,7 +567,6 @@ def cacheGoBin():
       "commands": [
         "make bingo-update",
       ],
-      "volumes": [stepVolumeGo],
       "environment": DRONE_HTTP_PROXY_ENV,
     },
     {
@@ -589,7 +575,6 @@ def cacheGoBin():
       "commands": [
         "tar -czvf %s /go/bin" % dirs["gobinTarPath"],
         ],
-      "volumes": [stepVolumeGo],
     },
     {
       "name": "cache-go-bin",
@@ -598,12 +583,11 @@ def cacheGoBin():
       "commands": [
         # .bingo folder will change after 'bingo-get'
         # so get the stored hash of a .bingo folder
-        "BINGO_HASH=$(cat %s/.bingo_hash)" % dirs["base"],
+        "BINGO_HASH=$(cat %s/.bingo_hash)" % dirs["baseGo"],
         # cache using the minio client to the public bucket (long term bucket)
         "mc alias set s3 $MC_HOST $AWS_ACCESS_KEY_ID $AWS_SECRET_ACCESS_KEY",
         "mc cp -r %s s3/$CACHE_BUCKET/ocis/go-bin/$BINGO_HASH" % (dirs["gobinTarPath"]),
         ],
-      "volumes": [stepVolumeGo],
     },
   ]
 
@@ -614,11 +598,10 @@ def restoreGoBinCache():
       "image": MINIO_MC,
       "environment": MINIO_MC_ENV,
       "commands": [
-        "BINGO_HASH=$(cat %s/.bingo/* | sha256sum | cut -d ' ' -f 1)" % dirs["base"],
+        "BINGO_HASH=$(cat %s/.bingo/* | sha256sum | cut -d ' ' -f 1)" % dirs["baseGo"],
         "mc alias set s3 $MC_HOST $AWS_ACCESS_KEY_ID $AWS_SECRET_ACCESS_KEY",
-        "mc cp -r -a s3/$CACHE_BUCKET/ocis/go-bin/$BINGO_HASH/%s %s" % (dirs["gobinTar"], dirs["base"]),
+        "mc cp -r -a s3/$CACHE_BUCKET/ocis/go-bin/$BINGO_HASH/%s %s" % (dirs["gobinTar"], dirs["baseGo"]),
         ],
-      "volumes": [stepVolumeGo],
     },
     {
       "name": "extract-go-bin-cache",
@@ -626,7 +609,6 @@ def restoreGoBinCache():
       "commands": [
         "tar -xvmf %s -C /" % dirs["gobinTarPath"],
         ],
-      "volumes": [stepVolumeGo],
     },
   ]
 
@@ -641,7 +623,6 @@ def testOcis(ctx):
         "mv checkstyle.xml cache/checkstyle/checkstyle.xml",
       ],
       "environment": DRONE_HTTP_PROXY_ENV,
-      "volumes": [stepVolumeGo],
     },
     {
       "name": "test",
@@ -652,7 +633,6 @@ def testOcis(ctx):
         "make test",
         "mv coverage.out cache/coverage/",
       ],
-      "volumes": [stepVolumeGo],
     },
     {
       "name": "scan-result-cache",
@@ -676,22 +656,19 @@ def testOcis(ctx):
   ]
 
   return {
-    "kind": "pipeline",
-    "type": "docker",
     "name": "linting_and_unitTests",
-    "platform": {
-      "os": "linux",
-      "arch": "amd64",
-    },
     "steps": steps,
-    "trigger": {
-      "ref": [
-        "refs/heads/master",
-        "refs/pull/**",
-      ],
-    },
+    "when": [
+      {
+        "event": ["push", "manual"],
+        "branch": "main",
+      },
+      {
+        "event": "pull_request",
+      },
+    ],
     "depends_on": getPipelineNames(getGoBinForTesting(ctx)),
-    "volumes": [pipelineVolumeGo],
+    "workspace": workspace
   }
 
 def scanOcis(ctx):
@@ -703,50 +680,43 @@ def scanOcis(ctx):
         "make govulncheck",
       ],
       "environment": DRONE_HTTP_PROXY_ENV,
-      "volumes": [stepVolumeGo],
     },
   ]
 
   return {
-    "kind": "pipeline",
-    "type": "docker",
     "name": "go-vulnerability-scanning",
-    "platform": {
-      "os": "linux",
-      "arch": "amd64",
-    },
     "steps": steps,
-    "trigger": {
-      "ref": [
-        "refs/heads/master",
-        "refs/pull/**",
-      ],
-    },
+    "when": [
+      {
+        "event": ["push", "manual"],
+        "branch": "main",
+      },
+      {
+        "event": "pull_request",
+      },
+    ],
     "depends_on": getPipelineNames(getGoBinForTesting(ctx)),
-    "volumes": [pipelineVolumeGo],
+    "workspace": workspace,
   }
 
 def buildOcisBinaryForTesting(ctx):
   return [{
-    "kind": "pipeline",
-    "type": "docker",
     "name": "build_ocis_binary_for_testing",
-    "platform": {
-      "os": "linux",
-      "arch": "amd64",
-    },
     "steps": skipIfUnchanged(ctx, "acceptance-tests") +
              makeNodeGenerate("") +
              makeGoGenerate("") +
              build() +
              rebuildBuildArtifactCache(ctx, "ocis-binary-amd64", "ocis/bin"),
-    "trigger": {
-      "ref": [
-        "refs/heads/master",
-        "refs/pull/**",
-      ],
-    },
-    "volumes": [pipelineVolumeGo],
+    "when": [
+      {
+        "event": ["push", "manual"],
+        "branch": "main",
+      },
+      {
+        "event": "pull_request",
+      },
+    ],
+    "workspace": workspace,
   }]
 
 def uploadScanResults(ctx):
@@ -770,16 +740,8 @@ def uploadScanResults(ctx):
       ]
 
   return {
-    "kind": "pipeline",
-    "type": "docker",
     "name": "upload-scan-results",
-    "platform": {
-      "os": "linux",
-      "arch": "amd64",
-    },
-    "clone": {
-      "disable": True,  # Sonarcloud does not apply issues on already merged branch
-    },
+    "skip_clone": True,  # Sonarcloud does not apply issues on already merged branch
     "steps": [
       {
         "name": "clone",
@@ -827,16 +789,18 @@ def uploadScanResults(ctx):
           ],
       },
     ],
-    "trigger": {
-      "ref": [
-        "refs/heads/master",
-        "refs/pull/**",
-      ],
-      "status": [
-        "success",
-        "failure",
-      ],
-    },
+    "when": [
+      {
+        "event": ["push", "manual"],
+        "branch": "main",
+      },
+      {
+        "event": "pull_request",
+      },
+      {
+        "status": ["success", "failure"],
+      }
+    ],
   }
 
 def vendorbinCodestyle(phpVersion):
@@ -865,8 +829,6 @@ def vendorbinCodesniffer(phpVersion):
 
 def checkTestSuitesInExpectedFailures(ctx):
   return [{
-    "kind": "pipeline",
-    "type": "docker",
     "name": "check-suites-in-expected-failures",
     "steps": [
       {
@@ -877,17 +839,15 @@ def checkTestSuitesInExpectedFailures(ctx):
           ],
       },
     ],
-    "trigger": {
-      "ref": [
-        "refs/pull/**",
-      ],
-    },
+    "when": [
+      {
+        "event": "pull_request",
+      },
+    ],
   }]
 
 def checkGherkinLint(ctx):
   return [{
-    "kind": "pipeline",
-    "type": "docker",
     "name": "check-gherkin-standard",
     "steps": [
       {
@@ -899,11 +859,11 @@ def checkGherkinLint(ctx):
         ],
       },
     ],
-    "trigger": {
-      "ref": [
-        "refs/pull/**",
-      ],
-    },
+    "when": [
+      {
+        "event": "pull_request",
+      },
+    ],
   }]
 
 def codestyle(ctx):
@@ -943,13 +903,7 @@ def codestyle(ctx):
       name = "coding-standard-php%s" % phpVersion
 
       result = {
-        "kind": "pipeline",
-        "type": "docker",
         "name": name,
-        "workspace": {
-          "base": "/drone",
-          "path": "src",
-        },
         "steps": skipIfUnchanged(ctx, "lint") +
                  vendorbinCodestyle(phpVersion) +
                  vendorbinCodesniffer(phpVersion) +
@@ -970,12 +924,16 @@ def codestyle(ctx):
                    },
                  ],
         "depends_on": [],
-        "trigger": {
-          "ref": [
-            "refs/heads/master",
-            "refs/pull/**",
-          ],
-        },
+        "when": [
+          {
+            "event": ["push", "manual"],
+            "branch": "main",
+          },
+          {
+            "event": "pull_request",
+            "ref": "refs/pull/**",
+          },
+        ],
       }
 
       pipelines.append(result)
@@ -1014,13 +972,7 @@ def localApiTestPipeline(ctx):
         for storage in params["storages"]:
           for run_with_remote_php in params["withRemotePhp"]:
             pipeline = {
-              "kind": "pipeline",
-              "type": "docker",
               "name": "%s-%s%s" % ("CLI" if name.startswith("cli") else "API", name, "-withoutRemotePhp" if not run_with_remote_php else ""),
-              "platform": {
-                "os": "linux",
-                "arch": "amd64",
-              },
               "steps": skipIfUnchanged(ctx, "acceptance-tests") +
                        restoreBuildArtifactCache(ctx, "ocis-binary-amd64", "ocis/bin") +
                        (tikaService() if params["tikaNeeded"] else []) +
@@ -1037,12 +989,15 @@ def localApiTestPipeline(ctx):
                           (clamavService() if params["antivirusNeeded"] else []) +
                           ((fakeOffice() + collaboraService() + onlyofficeService()) if params["collaborationServiceNeeded"] else []),
               "depends_on": getPipelineNames(buildOcisBinaryForTesting(ctx)),
-              "trigger": {
-                "ref": [
-                  "refs/heads/master",
-                  "refs/pull/**",
-                ],
-              },
+              "when": [
+                {
+                  "event": ["push", "manual"],
+                  "branch": "main",
+                },
+                {
+                  "event": "pull_request",
+                },
+              ],
             }
             pipelines.append(pipeline)
   return pipelines
@@ -1055,7 +1010,7 @@ def localApiTests(ctx, name, suites, storage = "ocis", extra_environment = {}, w
     "TEST_SERVER_URL": OCIS_URL,
     "TEST_SERVER_FED_URL": OCIS_FED_URL,
     "OCIS_REVA_DATA_ROOT": "%s" % (dirs["ocisRevaDataRoot"] if storage == "owncloud" else ""),
-    "SEND_SCENARIO_LINE_REFERENCES": "true",
+    "SEND_SCENARIO_LINE_REFERENCES": True,
     "STORAGE_DRIVER": storage,
     "BEHAT_SUITES": ",".join(suites),
     "BEHAT_FILTER_TAGS": "~@skip&&~@skipOnGraph&&~@skipOnOcis-%s-Storage" % ("OC" if storage == "owncloud" else "OCIS"),
@@ -1082,13 +1037,7 @@ def localApiTests(ctx, name, suites, storage = "ocis", extra_environment = {}, w
 
 def cs3ApiTests(ctx, storage, accounts_hash_difficulty = 4):
   return {
-    "kind": "pipeline",
-    "type": "docker",
     "name": "cs3ApiTests",
-    "platform": {
-      "os": "linux",
-      "arch": "amd64",
-    },
     "steps": skipIfUnchanged(ctx, "acceptance-tests") +
              restoreBuildArtifactCache(ctx, "ocis-binary-amd64", "ocis/bin") +
              ocisServer(storage, accounts_hash_difficulty, [], [], "cs3api_validator") +
@@ -1103,12 +1052,15 @@ def cs3ApiTests(ctx, storage, accounts_hash_difficulty = 4):
                },
              ],
     "depends_on": getPipelineNames(buildOcisBinaryForTesting(ctx)),
-    "trigger": {
-      "ref": [
-        "refs/heads/master",
-        "refs/pull/**",
-      ],
-    },
+    "when": [
+      {
+        "event": ["push", "manual"],
+        "branch": "main",
+      },
+      {
+        "event": "pull_request",
+      },
+    ],
   }
 
 def wopiValidatorTests(ctx, storage, wopiServerType, accounts_hash_difficulty = 4):
@@ -1186,13 +1138,7 @@ def wopiValidatorTests(ctx, storage, wopiServerType, accounts_hash_difficulty = 
       })
 
   return {
-    "kind": "pipeline",
-    "type": "docker",
     "name": "wopiValidatorTests-%s" % wopiServerType,
-    "platform": {
-      "os": "linux",
-      "arch": "amd64",
-    },
     "steps": skipIfUnchanged(ctx, "acceptance-tests") +
              restoreBuildArtifactCache(ctx, "ocis-binary-amd64", "ocis/bin") +
              fakeOffice() +
@@ -1222,12 +1168,15 @@ def wopiValidatorTests(ctx, storage, wopiServerType, accounts_hash_difficulty = 
              ] +
              validatorTests,
     "depends_on": getPipelineNames(buildOcisBinaryForTesting(ctx)),
-    "trigger": {
-      "ref": [
-        "refs/heads/master",
-        "refs/pull/**",
-      ],
-    },
+    "when": [
+      {
+        "event": ["push", "manual"],
+        "branch": "main",
+      },
+      {
+        "event": "pull_request",
+      },
+    ],
   }
 
 def coreApiTests(ctx, part_number = 1, number_of_parts = 1, with_remote_php = False, storage = "ocis", accounts_hash_difficulty = 4):
@@ -1236,13 +1185,7 @@ def coreApiTests(ctx, part_number = 1, number_of_parts = 1, with_remote_php = Fa
   expected_failures_file = "%s/expected-failures-API-on-%s-storage.md" % (test_dir, storage.upper())
 
   return {
-    "kind": "pipeline",
-    "type": "docker",
     "name": "Core-API-Tests-%s%s" % (part_number, "-withoutRemotePhp" if not with_remote_php else ""),
-    "platform": {
-      "os": "linux",
-      "arch": "amd64",
-    },
     "steps": skipIfUnchanged(ctx, "acceptance-tests") +
              restoreBuildArtifactCache(ctx, "ocis-binary-amd64", "ocis/bin") +
              ocisServer(storage, accounts_hash_difficulty, with_wrapper = True) +
@@ -1253,7 +1196,7 @@ def coreApiTests(ctx, part_number = 1, number_of_parts = 1, with_remote_php = Fa
                  "environment": {
                    "TEST_SERVER_URL": OCIS_URL,
                    "OCIS_REVA_DATA_ROOT": "%s" % (dirs["ocisRevaDataRoot"] if storage == "owncloud" else ""),
-                   "SEND_SCENARIO_LINE_REFERENCES": "true",
+                   "SEND_SCENARIO_LINE_REFERENCES": True,
                    "STORAGE_DRIVER": storage,
                    "BEHAT_FILTER_TAGS": filterTags,
                    "DIVIDE_INTO_NUM_PARTS": number_of_parts,
@@ -1274,12 +1217,15 @@ def coreApiTests(ctx, part_number = 1, number_of_parts = 1, with_remote_php = Fa
              logRequests(),
     "services": redisForOCStorage(storage),
     "depends_on": getPipelineNames(buildOcisBinaryForTesting(ctx)),
-    "trigger": {
-      "ref": [
-        "refs/heads/master",
-        "refs/pull/**",
-      ],
-    },
+    "when": [
+      {
+        "event": ["push", "manual"],
+        "branch": "main",
+      },
+      {
+        "event": "pull_request",
+      },
+    ],
   }
 
 def apiTests(ctx):
@@ -1315,24 +1261,19 @@ def e2eTestPipeline(ctx):
     "OCIS_PASSWORD_POLICY_BANNED_PASSWORDS_LIST": "%s" % dirs["bannedPasswordList"],
   }
 
-  e2e_trigger = {
-    "ref": [
-      "refs/heads/master",
-      "refs/tags/**",
-      "refs/pull/**",
-    ],
-  }
-
-  e2e_volumes = [{
-    "name": "uploads",
-    "temp": {},
-  }, {
-    "name": "configs",
-    "temp": {},
-  }, {
-    "name": "gopath",
-    "temp": {},
-  }]
+  e2e_trigger = [
+      {
+        "event": ["push", "manual"],
+        "branch": "main",
+      },
+      {
+        "event": "pull_request",
+      },
+      {
+        "event": "tag",
+        "ref": "refs/tags/**",
+      },
+    ]
 
   pipelines = []
 
@@ -1373,7 +1314,7 @@ def e2eTestPipeline(ctx):
       "image": OC_CI_NODEJS % DEFAULT_NODEJS_VERSION,
       "environment": {
         "BASE_URL_OCIS": OCIS_DOMAIN,
-        "HEADLESS": "true",
+        "HEADLESS": True,
         "RETRY": "1",
         "WEB_UI_CONFIG_FILE": "%s/%s" % (dirs["base"], dirs["ocisConfig"]),
         "LOCAL_UPLOAD_DIR": "/uploads",
@@ -1396,24 +1337,18 @@ def e2eTestPipeline(ctx):
           "bash run-e2e.sh %s --run-part %d" % (e2e_args, run_part),
           ]
         pipelines.append({
-          "kind": "pipeline",
-          "type": "docker",
           "name": "e2e-tests-%s-%s" % (name, run_part),
           "steps": steps_before + [run_e2e] + steps_after,
           "depends_on": getPipelineNames(buildOcisBinaryForTesting(ctx) + buildWebCache(ctx)),
-          "trigger": e2e_trigger,
-          "volumes": e2e_volumes,
+          "when": e2e_trigger,
         })
     else:
       step_e2e["commands"].append("bash run-e2e.sh %s" % e2e_args)
       pipelines.append({
-        "kind": "pipeline",
-        "type": "docker",
         "name": "e2e-tests-%s" % name,
         "steps": steps_before + [step_e2e] + steps_after,
         "depends_on": getPipelineNames(buildOcisBinaryForTesting(ctx) + buildWebCache(ctx)),
-        "trigger": e2e_trigger,
-        "volumes": e2e_volumes,
+        "when": e2e_trigger,
       })
 
   return pipelines
@@ -1429,9 +1364,14 @@ def multiServiceE2ePipeline(ctx):
   }
 
   e2e_trigger = {
-    "ref": [
-      "refs/heads/master",
-      "refs/pull/**",
+    "when": [
+      {
+        "event": ["push", "manual"],
+        "branch": "main",
+      },
+      {
+        "event": "pull_request",
+      },
     ],
   }
 
@@ -1521,7 +1461,7 @@ def multiServiceE2ePipeline(ctx):
         "image": OC_CI_NODEJS % DEFAULT_NODEJS_VERSION,
         "environment": {
           "BASE_URL_OCIS": OCIS_DOMAIN,
-          "HEADLESS": "true",
+          "HEADLESS": True,
           "RETRY": "1",
         },
         "commands": [
@@ -1533,19 +1473,10 @@ def multiServiceE2ePipeline(ctx):
       logTracingResults()
 
     pipelines.append({
-      "kind": "pipeline",
-      "type": "docker",
       "name": "e2e-tests-multi-service",
       "steps": steps,
       "depends_on": getPipelineNames(buildOcisBinaryForTesting(ctx) + buildWebCache(ctx)),
-      "trigger": e2e_trigger,
-      "volumes": [
-        {
-          "name": "storage",
-          "temp": {},
-        },
-        pipelineVolumeGo,
-      ],
+      "workspace": e2e_trigger,
     })
   return pipelines
 
@@ -1553,7 +1484,6 @@ def uploadTracingResult(ctx):
   return [{
     "name": "upload-tracing-result",
     "image": PLUGINS_S3,
-    "pull": "if-not-exists",
     "settings": {
       "bucket": {
         "from_secret": "cache_public_s3_bucket",
@@ -1654,12 +1584,10 @@ def dockerRelease(ctx, arch, repo, build_type):
     depends_on = []
 
   return {
-    "kind": "pipeline",
-    "type": "docker",
     "name": "docker-%s-%s" % (arch, build_type),
-    "platform": {
-      "os": "linux",
-      "arch": arch,
+    "labels":
+      {
+      "platform": "linux/%s" % arch,
     },
     "steps": skipIfUnchanged(ctx, "build-docker") +
              makeNodeGenerate("") +
@@ -1708,24 +1636,30 @@ def dockerRelease(ctx, arch, repo, build_type):
                    "repo": repo,
                    "build_args": build_args,
                  },
-                 "when": {
-                   "ref": {
-                     "exclude": [
-                       "refs/pull/**",
-                     ],
+                 "when": [
+                   {
+                     "event": ["push", "manual"],
+                     "branch": "main",
                    },
-                 },
+                   {
+                     "event": "tag",
+                   },
+                 ],
                },
              ],
     "depends_on": depends_on,
-    "trigger": {
-      "ref": [
-        "refs/heads/master",
-        "refs/tags/v*",
-        "refs/pull/**",
-      ],
-    },
-    "volumes": [pipelineVolumeGo],
+    "when": [
+      {
+        "event": ["push", "manual"],
+        "branch": "main",
+      },
+      {
+        "event": "pull_request",
+      },
+      {
+        "event": "tag",
+      },
+    ],
   }
 
 def binaryReleases(ctx):
@@ -1799,13 +1733,7 @@ def binaryRelease(ctx, arch, build_type, target, depends_on = []):
   }
 
   return {
-    "kind": "pipeline",
-    "type": "docker",
     "name": "binaries-%s-%s" % (arch, build_type),
-    "platform": {
-      "os": "linux",
-      "arch": "amd64",
-    },
     "steps": skipIfUnchanged(ctx, "build-binary") +
              makeNodeGenerate("") +
              makeGoGenerate("") + [
@@ -1825,23 +1753,29 @@ def binaryRelease(ctx, arch, build_type, target, depends_on = []):
                    "make -C ocis release-finish",
                    "cp assets/End-User-License-Agreement-for-ownCloud-Infinite-Scale.pdf ocis/dist/release/",
                  ],
-                 "when": {
-                   "ref": [
-                     "refs/heads/master",
-                     "refs/tags/v*",
-                   ],
-                 },
+                 "when": [
+                   {
+                     "event": ["push", "manual"],
+                     "branch": "main",
+                   },
+                   {
+                     "event": "tag",
+                   },
+                 ],
                },
                {
                  "name": "upload",
                  "image": PLUGINS_S3,
                  "settings": settings,
-                 "when": {
-                   "ref": [
-                     "refs/heads/master",
-                     "refs/tags/v*",
-                   ],
-                 },
+                 "when": [
+                   {
+                     "event": ["push", "manual"],
+                     "branch": "main",
+                   },
+                   {
+                     "event": "tag",
+                   },
+                 ],
                },
                {
                  "name": "changelog",
@@ -1850,11 +1784,11 @@ def binaryRelease(ctx, arch, build_type, target, depends_on = []):
                  "commands": [
                    "make changelog CHANGELOG_VERSION=%s" % ctx.build.ref.replace("refs/tags/v", ""),
                    ],
-                 "when": {
-                   "ref": [
-                     "refs/tags/v*",
-                   ],
-                 },
+                 "when": [
+                   {
+                     "event": "tag",
+                   },
+                 ],
                },
                {
                  "name": "release",
@@ -1871,22 +1805,26 @@ def binaryRelease(ctx, arch, build_type, target, depends_on = []):
                    "overwrite": True,
                    "prerelease": len(ctx.build.ref.split("-")) > 1,
                  },
-                 "when": {
-                   "ref": [
-                     "refs/tags/v*",
-                   ],
-                 },
+                 "when": [
+                   {
+                     "event": "tag",
+                   },
+                 ],
                },
              ],
     "depends_on": depends_on,
-    "trigger": {
-      "ref": [
-        "refs/heads/master",
-        "refs/tags/v*",
-        "refs/pull/**",
-      ],
-    },
-    "volumes": [pipelineVolumeGo],
+    "when": [
+      {
+        "event": ["push", "manual"],
+        "branch": "main",
+      },
+      {
+        "event": "pull_request",
+      },
+      {
+        "event": "tag",
+      },
+    ],
   }
 
 def licenseCheck(ctx):
@@ -1920,13 +1858,7 @@ def licenseCheck(ctx):
   }
 
   return [{
-    "kind": "pipeline",
-    "type": "docker",
     "name": "check-licenses",
-    "platform": {
-      "os": "linux",
-      "arch": "amd64",
-    },
     "steps": [
       {
         "name": "node-check-licenses",
@@ -1949,7 +1881,6 @@ def licenseCheck(ctx):
         "commands": [
           "make ci-go-check-licenses",
         ],
-        "volumes": [stepVolumeGo],
       },
       {
         "name": "go-save-licenses",
@@ -1958,7 +1889,6 @@ def licenseCheck(ctx):
         "commands": [
           "make ci-go-save-licenses",
         ],
-        "volumes": [stepVolumeGo],
       },
       {
         "name": "tarball",
@@ -1971,12 +1901,15 @@ def licenseCheck(ctx):
         "name": "upload",
         "image": PLUGINS_S3,
         "settings": settings,
-        "when": {
-          "ref": [
-            "refs/heads/master",
-            "refs/tags/v*",
-          ],
-        },
+        "when": [
+          {
+            "event": "tag",
+          },
+          {
+            "event": ["push", "manual"],
+            "branch": "main",
+          },
+        ],
       },
       {
         "name": "changelog",
@@ -1985,11 +1918,11 @@ def licenseCheck(ctx):
         "commands": [
           "make changelog CHANGELOG_VERSION=%s" % ctx.build.ref.replace("refs/tags/v", "").split("-")[0],
           ],
-        "when": {
-          "ref": [
-            "refs/tags/v*",
-          ],
-        },
+        "when": [
+          {
+            "event": "tag",
+          },
+        ],
       },
       {
         "name": "release",
@@ -2006,21 +1939,26 @@ def licenseCheck(ctx):
           "overwrite": True,
           "prerelease": len(ctx.build.ref.split("-")) > 1,
         },
-        "when": {
-          "ref": [
-            "refs/tags/v*",
-          ],
-        },
+        "when": [
+          {
+            "event": "tag",
+          },
+        ],
       },
     ],
-    "trigger": {
-      "ref": [
-        "refs/heads/master",
-        "refs/tags/v*",
-        "refs/pull/**",
-      ],
-    },
-    "volumes": [pipelineVolumeGo],
+    "when": [
+      {
+        "event": ["push", "manual"],
+        "branch": "main",
+      },
+      {
+        "event": "pull_request",
+      },
+      {
+        "event": "tag",
+      },
+    ],
+    "workspace": workspace,
   }]
 
 def releaseDockerManifest(ctx, repo, build_type):
@@ -2063,40 +2001,31 @@ def releaseDockerManifest(ctx, repo, build_type):
           "auto_tag": True,
           "ignore_missing": True,
         },
-        "when": {
-          "ref": [
-            "refs/tags/v*",
-          ],
-        },
+        "when": [
+          {
+            "event": "tag",
+          },
+        ],
       },
     )
 
   return {
-    "kind": "pipeline",
-    "type": "docker",
     "name": "manifest-%s" % build_type,
-    "platform": {
-      "os": "linux",
-      "arch": "amd64",
-    },
     "steps": steps,
-    "trigger": {
-      "ref": [
-        "refs/heads/master",
-        "refs/tags/v*",
-      ],
-    },
+    "when": [
+      {
+        "event": ["push", "manual"],
+        "branch": "main",
+      },
+      {
+        "event": "tag",
+      },
+    ],
   }
 
 def changelog():
   return [{
-    "kind": "pipeline",
-    "type": "docker",
     "name": "changelog",
-    "platform": {
-      "os": "linux",
-      "arch": "amd64",
-    },
     "steps": [
       {
         "name": "generate",
@@ -2140,37 +2069,28 @@ def changelog():
             "from_secret": "github_token",
           },
         },
-        "when": {
-          "ref": {
-            "exclude": [
-              "refs/pull/**",
-            ],
+        "when": [
+          {
+            "event": ["push", "manual"],
+            "branch": "main",
           },
-        },
-      },
-    ],
-    "trigger": {
-      "ref": [
-        "refs/heads/master",
-        "refs/pull/**",
-      ],
-      "event": {
-        "exclude": [
-          "cron",
         ],
       },
-    },
+    ],
+    "when": [
+      {
+        "event": ["push", "manual"],
+        "branch": "main",
+      },
+      {
+        "event": "pull_request",
+      },
+    ],
   }]
 
 def releaseDockerReadme(ctx, repo, build_type):
   return {
-    "kind": "pipeline",
-    "type": "docker",
     "name": "readme-%s" % build_type,
-    "platform": {
-      "os": "linux",
-      "arch": "amd64",
-    },
     "steps": [
       {
         "name": "execute",
@@ -2188,23 +2108,20 @@ def releaseDockerReadme(ctx, repo, build_type):
         },
       },
     ],
-    "trigger": {
-      "ref": [
-        "refs/heads/master",
-        "refs/tags/v*",
-      ],
-    },
+    "when": [
+      {
+        "event": ["push", "manual"],
+        "branch": "main",
+      },
+      {
+        "event": "tag",
+      },
+    ],
   }
 
 def docs():
   return [{
-    "kind": "pipeline",
-    "type": "docker",
     "name": "docs",
-    "platform": {
-      "os": "linux",
-      "arch": "amd64",
-    },
     "steps": [
       {
         "name": "docs-generate",
@@ -2239,17 +2156,16 @@ def docs():
             "from_secret": "github_token",
           },
           "pages_directory": "docs/hugo/content/",
-          "copy_contents": "true",
+          "copy_contents": True,
           "target_branch": "docs",
-          "delete": "true",
+          "delete": True,
         },
-        "when": {
-          "ref": {
-            "exclude": [
-              "refs/pull/**",
-            ],
+        "when": [
+          {
+            "event": ["push", "manual"],
+            "branch": "main",
           },
-        },
+        ],
       },
       {
         "name": "list and remove temporary files",
@@ -2260,12 +2176,15 @@ def docs():
         ],
       },
     ],
-    "trigger": {
-      "ref": [
-        "refs/heads/master",
-        "refs/pull/**",
-      ],
-    },
+    "when": [
+      {
+        "event": ["push", "manual"],
+        "branch": "main",
+      },
+      {
+        "event": "pull_request",
+      },
+    ],
   }]
 
 def makeNodeGenerate(module):
@@ -2278,13 +2197,12 @@ def makeNodeGenerate(module):
       "name": "generate nodejs",
       "image": OC_CI_NODEJS % DEFAULT_NODEJS_VERSION,
       "environment": {
-        "CHROMEDRIVER_SKIP_DOWNLOAD": "true",  # install fails on arm and chromedriver is a test only dependency
+        "CHROMEDRIVER_SKIP_DOWNLOAD": True,  # install fails on arm and chromedriver is a test only dependency
       },
       "commands": [
         "pnpm config set store-dir ./.pnpm-store",
         "retry -t 3 '%s ci-node-generate'" % (make),
         ],
-      "volumes": [stepVolumeGo],
     },
   ]
 
@@ -2301,7 +2219,6 @@ def makeGoGenerate(module):
         "retry -t 3 '%s ci-go-generate'" % (make),
         ],
       "environment": DRONE_HTTP_PROXY_ENV,
-      "volumes": [stepVolumeGo],
     },
   ]
 
@@ -2313,12 +2230,8 @@ def notify(ctx):
     channel = config["rocketchat"]["channel_cron"]
 
   return {
-    "kind": "pipeline",
-    "type": "docker",
     "name": "chat-notifications",
-    "clone": {
-      "disable": True,
-    },
+    "skip_clone":  True,
     "steps": [
       {
         "name": "notify-rocketchat",
@@ -2332,14 +2245,18 @@ def notify(ctx):
       },
     ],
     "depends_on": [],
-    "trigger": {
-      "ref": [
-        "refs/heads/master",
-        "refs/heads/release*",
-        "refs/tags/**",
-      ],
-      "status": status,
-    },
+    "when": [
+      {
+        "event": ["push", "manual"],
+        "branch": ["main", "release-*"],
+      },
+      {
+        "event": "tag",
+      },
+      {
+        "status": status
+      },
+    ],
   }
 
 def ocisServer(storage = "ocis", accounts_hash_difficulty = 4, volumes = [], depends_on = [], deploy_type = "", extra_server_environment = {}, with_wrapper = False, tika_enabled = False):
@@ -2416,7 +2333,7 @@ def ocisServer(storage = "ocis", accounts_hash_difficulty = 4, volumes = [], dep
     environment["APP_PROVIDER_DRIVER"] = "wopi"
     environment["APP_PROVIDER_WOPI_APP_NAME"] = "FakeOffice"
     environment["APP_PROVIDER_WOPI_APP_URL"] = "http://fakeoffice:8080"
-    environment["APP_PROVIDER_WOPI_INSECURE"] = "true"
+    environment["APP_PROVIDER_WOPI_INSECURE"] = True
     environment["APP_PROVIDER_WOPI_WOPI_SERVER_EXTERNAL_URL"] = "http://wopi-fakeoffice:9300"
     environment["APP_PROVIDER_WOPI_FOLDER_URL_BASE_URL"] = OCIS_URL
 
@@ -2466,13 +2383,16 @@ def ocisServer(storage = "ocis", accounts_hash_difficulty = 4, volumes = [], dep
       "image": OC_CI_GOLANG,
       "detach": True,
       "environment": environment,
-      "user": user,
+      "backend_options": {
+        "docker": {
+          "user": user,
+        }
+      },
       "commands": [
                     "%s init --insecure true" % ocis_bin,
                     "cat $OCIS_CONFIG_DIR/ocis.yaml",
                     "cp tests/config/drone/app-registry.yaml /root/.ocis/config/app-registry.yaml",
                     ] + (wrapper_commands),
-      "volumes": volumes,
       "depends_on": depends_on,
     },
     wait_for_ocis,
@@ -2506,7 +2426,6 @@ def startOcisService(service = None, name = None, environment = {}, volumes = []
       "commands": [
         "ocis/bin/ocis %s server" % service,
         ],
-      "volumes": volumes,
     },
   ]
 
@@ -2533,7 +2452,6 @@ def build():
         "retry -t 3 'make -C ocis build'",
       ],
       "environment": DRONE_HTTP_PROXY_ENV,
-      "volumes": [stepVolumeGo],
     },
   ]
 
@@ -2600,15 +2518,15 @@ def example_deploys(ctx):
 
   # if on master branch:
   configs = on_merge_deploy
-  rebuild = "false"
+  rebuild = False
 
   if ctx.build.event == "tag":
     configs = nightly_deploy
-    rebuild = "false"
+    rebuild = False
 
   if ctx.build.event == "cron":
     configs = on_merge_deploy + nightly_deploy
-    rebuild = "true"
+    rebuild = True
 
   deploys = []
   for config in configs:
@@ -2618,13 +2536,7 @@ def example_deploys(ctx):
 
 def deploy(ctx, config, rebuild):
   return {
-    "kind": "pipeline",
-    "type": "docker",
     "name": "deploy_%s" % (config),
-    "platform": {
-      "os": "linux",
-      "arch": "amd64",
-    },
     "steps": [
       {
         "name": "clone continuous deployment playbook",
@@ -2640,7 +2552,7 @@ def deploy(ctx, config, rebuild):
         "failure": "ignore",
         "environment": {
           "CONTINUOUS_DEPLOY_SERVERS_CONFIG": "../%s" % (config),
-          "REBUILD": "%s" % (rebuild),
+          "REBUILD": rebuild,
           "HCLOUD_API_TOKEN": {
             "from_secret": "hcloud_api_token",
           },
@@ -2659,18 +2571,19 @@ def deploy(ctx, config, rebuild):
         },
       },
     ],
-    "trigger": {
-      "ref": [
-        "refs/heads/master",
-        "refs/tags/v*",
-      ],
-    },
+    "when": [
+      {
+        "event": ["push", "manual"],
+        "branch": "main",
+      },
+      {
+        "event": "tag",
+      },
+    ],
   }
 
 def checkStarlark():
   return [{
-    "kind": "pipeline",
-    "type": "docker",
     "name": "check-starlark",
     "steps": [
       {
@@ -2687,29 +2600,29 @@ def checkStarlark():
           "buildifier --mode=fix .drone.star",
           "git diff",
         ],
-        "when": {
-          "status": [
-            "failure",
-          ],
-        },
+        "when": [
+          {
+            "status": "failure",
+          }
+        ],
       },
     ],
     "depends_on": [],
-    "trigger": {
-      "ref": [
-        "refs/pull/**",
-      ],
-    },
+    "when": [
+      {
+        "event": "pull_request",
+      },
+    ],
   }]
 
 def genericCache(name, action, mounts, cache_path):
-  rebuild = "false"
-  restore = "false"
+  rebuild = False
+  restore = False
   if action == "rebuild":
-    rebuild = "true"
+    rebuild = True
     action = "rebuild"
   else:
-    restore = "true"
+    restore = True
     action = "restore"
 
   step = {
@@ -2737,13 +2650,8 @@ def genericCache(name, action, mounts, cache_path):
 
 def genericCachePurge(flush_path):
   return {
-    "kind": "pipeline",
-    "type": "docker",
     "name": "purge_build_artifact_cache",
-    "platform": {
-      "os": "linux",
-      "arch": "amd64",
-    },
+
     "steps": [
       {
         "name": "purge-cache",
@@ -2764,16 +2672,18 @@ def genericCachePurge(flush_path):
         },
       },
     ],
-    "trigger": {
-      "ref": [
-        "refs/heads/master",
-        "refs/pull/**",
-      ],
-      "status": [
-        "success",
-        "failure",
-      ],
-    },
+    "when": [
+      {
+        "event": ["push", "manual"],
+        "branch": "main",
+      },
+      {
+        "event": "pull_request",
+      },
+      {
+        "status": ["success", "failure"]
+      },
+    ],
   }
 
 def genericBuildArtifactCache(ctx, name, action, path):
@@ -2834,17 +2744,17 @@ def pipelineSanityChecks(ctx, pipelines):
           print("Error: depends_on %s for pipeline %s is not defined" % (depends, pipeline["name"]))
 
   # check for non declared volumes
-  for pipeline in pipelines:
-    pipeline_volumes = []
-    if "volumes" in pipeline.keys():
-      for volume in pipeline["volumes"]:
-        pipeline_volumes.append(volume["name"])
-
-    for step in pipeline["steps"]:
-      if "volumes" in step.keys():
-        for volume in step["volumes"]:
-          if not volume["name"] in pipeline_volumes:
-            print("Warning: volume %s for step %s is not defined in pipeline %s" % (volume["name"], step["name"], pipeline["name"]))
+  # for pipeline in pipelines:
+  #   pipeline_volumes = []
+  #   if "workspace" in pipeline.keys():
+  #     for volume in pipeline["workspace"]:
+  #       pipeline_volumes.append(volume["base"])
+  #
+  #   for step in pipeline["steps"]:
+  #     if "workspace" in step.keys():
+  #       for volume in step["workspace"]:
+  #         if not volume["base"] in pipeline_volumes:
+  #           print("Warning: volume %s for step %s is not defined in pipeline %s" % (volume["base"], step["name"], pipeline["name"]))
 
   # list used docker images
   print("")
@@ -2878,13 +2788,7 @@ def litmus(ctx, storage):
   litmusCommand = "/usr/local/bin/litmus-wrapper"
 
   result = {
-    "kind": "pipeline",
-    "type": "docker",
     "name": "litmus",
-    "workspace": {
-      "base": "/drone",
-      "path": "src",
-    },
     "steps": skipIfUnchanged(ctx, "litmus") +
              restoreBuildArtifactCache(ctx, "ocis-binary-amd64", "ocis/bin") +
              ocisServer(storage) +
@@ -2957,12 +2861,15 @@ def litmus(ctx, storage):
              ],
     "services": redisForOCStorage(storage),
     "depends_on": getPipelineNames(buildOcisBinaryForTesting(ctx)),
-    "trigger": {
-      "ref": [
-        "refs/heads/master",
-        "refs/pull/**",
-      ],
-    },
+    "when": [
+      {
+        "event": ["push", "manual"],
+        "branch": "main",
+      },
+      {
+        "event": "pull_request",
+      },
+    ],
   }
   pipelines.append(result)
 
@@ -3184,9 +3091,9 @@ def wopiCollaborationService(name):
     "COLLABORATION_GRPC_ADDR": "0.0.0.0:9301",
     "COLLABORATION_HTTP_ADDR": "0.0.0.0:9300",
     "COLLABORATION_DEBUG_ADDR": "0.0.0.0:9304",
-    "COLLABORATION_APP_PROOF_DISABLE": "true",
-    "COLLABORATION_APP_INSECURE": "true",
-    "COLLABORATION_CS3API_DATAGATEWAY_INSECURE": "true",
+    "COLLABORATION_APP_PROOF_DISABLE": True,
+    "COLLABORATION_APP_INSECURE": True,
+    "COLLABORATION_CS3API_DATAGATEWAY_INSECURE": True,
     "OCIS_JWT_SECRET": "some-ocis-jwt-secret",
     "COLLABORATION_WOPI_SECRET": "some-wopi-secret",
   }
@@ -3280,12 +3187,8 @@ def k6LoadTests(ctx):
     event_array.append("pull_request")
 
   return [{
-    "kind": "pipeline",
-    "type": "docker",
     "name": "k6-load-test",
-    "clone": {
-      "disable": True,
-    },
+    "skip_clone": True,
     "steps": [
       {
         "name": "k6-load-test",
@@ -3306,12 +3209,11 @@ def k6LoadTests(ctx):
           "apk add --no-cache openssh-client sshpass",
           "sh %s/run_k6_tests.sh --ocis-log" % (dirs["base"]),
           ],
-        "when": {
-          "status": [
-            "success",
-            "failure",
-          ],
-        },
+        "when": [
+          {
+            "status": ["success","failure"],
+          },
+        ],
       },
       {
         "name": "open-grafana-dashboard",
@@ -3319,18 +3221,19 @@ def k6LoadTests(ctx):
         "commands": [
           "echo 'Grafana Dashboard: https://grafana.k6.infra.owncloud.works'",
         ],
-        "when": {
-          "status": [
-            "success",
-            "failure",
-          ],
-        },
+        "when": [
+          {
+            "status": ["success","failure"],
+          },
+        ],
       },
     ],
     "depends_on": [],
-    "trigger": {
+    "when":[
+      {
       "event": event_array,
-    },
+      },
+    ],
   }]
 
 def waitForServices(name, services = []):
@@ -3383,8 +3286,8 @@ def onlyofficeService():
       "image": ONLYOFFICE_DOCUMENT_SERVER,
       "detach": True,
       "environment": {
-        "WOPI_ENABLED": "true",
-        "USE_UNAUTHORIZED_STORAGE": "true",  # self signed certificates
+        "WOPI_ENABLED": True,
+        "USE_UNAUTHORIZED_STORAGE": True,  # self signed certificates
       },
       "commands": [
         "cp %s/tests/config/drone/only-office.json /etc/onlyoffice/documentserver/local.json" % dirs["base"],

@@ -1,3 +1,4 @@
+depends_on: []
 steps:
   - image: owncloudci/drone-skip-pipeline
     name: skip-if-unchanged
@@ -14,17 +15,18 @@ steps:
         - README.md
         - .*_test.go$
     when:
-      - event: pull_request
+      event:
+        - pull_request
   - commands:
       - make vendor-bin-codestyle
     environment:
-      COMPOSER_HOME: /woodpecker/src/.cache/composer
+      COMPOSER_HOME: /woodpecker/src/github.com/opencloud-eu/opencloud/.cache/composer
     image: owncloudci/php:8.2
     name: vendorbin-codestyle
   - commands:
       - make vendor-bin-codesniffer
     environment:
-      COMPOSER_HOME: /woodpecker/src/.cache/composer
+      COMPOSER_HOME: /woodpecker/src/github.com/opencloud-eu/opencloud/.cache/composer
     image: owncloudci/php:8.2
     name: vendorbin-codesniffer
   - commands:
@@ -36,4 +38,9 @@ steps:
     image: owncloudci/php:8.2
     name: check-env-var-annotations
 when:
-  - evaluate: 'ENV_WORKFLOW_SKIP_1_CODING_STANDARD_PHP8_2 != "true"' # TODO
+  - branch: main
+    event:
+      - push
+      - manual
+  - event: pull_request
+    ref: refs/pull/**

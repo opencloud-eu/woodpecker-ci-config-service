@@ -1,3 +1,5 @@
+depends_on: []
+name: check-starlark
 steps:
   - commands:
       - buildifier --mode=check .drone.star
@@ -9,6 +11,6 @@ steps:
     image: owncloudci/bazel-buildifier:latest
     name: show-diff
     when:
-      - status: [failure]
+      - status: failure
 when:
-  - evaluate: 'ENV_WORKFLOW_SKIP_8_CHECK_STARLARK != "true"' # TODO
+  - event: pull_request
