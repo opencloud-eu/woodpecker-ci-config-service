@@ -1,4 +1,5 @@
 .envrc
+bin/
 testenv/conf/legacy
 testenv/volumes/minio/*
 testenv/volumes/squid/*

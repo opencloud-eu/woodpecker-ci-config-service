@@ -9,7 +9,8 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY *.go ./
-RUN GOOS=linux GOARCH="${TARGETARCH}" go build -o bin/woodpecker-config-service .
+COPY cmd/wcs ./cmd/wcs
+RUN GOOS=linux GOARCH="${TARGETARCH}" go build -o bin/wcs ./cmd/wcs
 
 FROM alpine:3.21
 
@@ -21,7 +22,7 @@ LABEL maintainer="OpenCloud GmbH <devops@opencloud.eu>" \
         org.opencontainers.image.documentation="https://github.com/opencloud-eu/woodpecker-ci-config-service" \
         org.opencontainers.image.source="https://github.com/opencloud-eu/woodpecker-ci-config-service"
 
-COPY --from=build /opencloud-eu/woodpecker-config-service/bin/woodpecker-config-service /usr/bin/woodpecker-config-service
+COPY --from=build /opencloud-eu/woodpecker-config-service/bin/wcs /usr/bin/wcs
 
 EXPOSE 8080/tcp
-ENTRYPOINT ["woodpecker-config-service"]
+ENTRYPOINT ["wcs"]

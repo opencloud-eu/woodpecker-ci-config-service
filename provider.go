@@ -1,4 +1,4 @@
-package main
+package wcs
 
 import (
 	"bytes"
@@ -59,7 +59,7 @@ func (p ForgeProvider) Get(ctx context.Context, env Environment) ([]File, error)
 
 	data, err := f.File(ctx, &model.User{
 		AccessToken: env.Netrc.Login,
-	}, env.Repo, env.Pipeline,
+	}, &env.Repo, &env.Pipeline,
 		// ce.Repo.Config must point to a configuration file, globs are not supported yet
 		env.Repo.Config)
 	if err != nil {
@@ -85,13 +85,13 @@ func NewFSProvider(dir, glob string, logger *slog.Logger) (FSProvider, error) {
 	info, err := fs.Stat(dirFS, ".")
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
-		return FSProvider{}, fmt.Errorf("CONFIG_SERVICE_PROVIDER_FS_SOURCE does not exist: %s", dir)
+		return FSProvider{}, fmt.Errorf("does not exist: %s", dir)
 	case err != nil:
 		return FSProvider{}, err
 	}
 
 	if !info.IsDir() {
-		return FSProvider{}, fmt.Errorf("CONFIG_SERVICE_PROVIDER_FS_SOURCE is not a directory: %s", dir)
+		return FSProvider{}, fmt.Errorf("is not a directory: %s", dir)
 	}
 
 	return FSProvider{
