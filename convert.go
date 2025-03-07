@@ -58,16 +58,12 @@ func (p StarlarkConverter) Convert(f File, env Environment) ([]File, error) {
 			starlark.StringDict{
 				"repo": starlarkstruct.FromStringDict(starlark.String("repo"), starlark.StringDict{
 					"name": starlark.String(env.Repo.Name),
-					"slug": starlark.String("slug"),
 				}),
 				"build": starlarkstruct.FromStringDict(starlark.String("build"), starlark.StringDict{
-					"event":       starlark.String(env.Pipeline.Event),
-					"title":       starlark.String(env.Pipeline.Title),
-					"commit":      starlark.String(env.Pipeline.Commit),
-					"ref":         starlark.String(env.Pipeline.Ref),
-					"target":      starlark.String("target"),
-					"source":      starlark.String("source"),
-					"source_repo": starlark.String("source_repo"),
+					"event":  starlark.String(env.Pipeline.Event),
+					"title":  starlark.String(env.Pipeline.Title),
+					"commit": starlark.String(env.Pipeline.Commit),
+					"ref":    starlark.String(env.Pipeline.Ref),
 				}),
 			},
 		),
