@@ -43,7 +43,7 @@ type (
 	// File represents a file
 	File struct {
 		Name string `json:"name"`
-		Data []byte `json:"data"`
+		Data string `json:"data"`
 	}
 )
 

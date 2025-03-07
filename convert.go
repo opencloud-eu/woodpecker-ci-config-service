@@ -31,7 +31,7 @@ func (p StarlarkConverter) Compatible(f File) bool {
 
 // Convert reads, transpiles and migrates Starlark configuration files to the required format.
 func (p StarlarkConverter) Convert(f File, env Environment) ([]File, error) {
-	if f.Data == nil {
+	if f.Data == "" {
 		return nil, ErrNoContent
 	}
 
@@ -100,7 +100,7 @@ func (p StarlarkConverter) Convert(f File, env Environment) ([]File, error) {
 
 		files = append(files, File{
 			Name: name,
-			Data: buf.Bytes(),
+			Data: buf.String(),
 		})
 	}
 

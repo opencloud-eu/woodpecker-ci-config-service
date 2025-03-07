@@ -68,7 +68,7 @@ func (p ForgeProvider) Get(ctx context.Context, env Environment) ([]File, error)
 
 	return []File{{
 		Name: env.Repo.Config,
-		Data: data,
+		Data: string(data),
 	}}, nil
 }
 
@@ -125,7 +125,7 @@ func (p FSProvider) Get(_ context.Context, _ Environment) ([]File, error) {
 
 			files = append(files, File{
 				Name: fp,
-				Data: buf.Bytes(),
+				Data: buf.String(),
 			})
 
 			return nil
