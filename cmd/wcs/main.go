@@ -26,7 +26,7 @@ type CFG struct {
 	// the public key to verify incoming requests
 	PublicKey string `env:"CONFIG_SERVICE_PUBLIC_KEY"`
 	// the providers which are used to get the configuration files
-	Providers []wcs.ProviderType `env:"CONFIG_SERVICE_PROVIDER_TYPES"`
+	Providers []wcs.ProviderType `env:"CONFIG_SERVICE_PROVIDER_TYPES" envDefault:"forge"`
 	// the file system source for the fs provider
 	ProviderFSSource string `env:"CONFIG_SERVICE_PROVIDER_FS_SOURCE"`
 	// the log level for the service
@@ -61,7 +61,7 @@ func main() {
 	}
 
 	if slices.Contains(cfg.Providers, wcs.ProviderTypeFS) {
-		providers = append(providers, wcs.Must1(wcs.NewFSProvider(cfg.ProviderFSSource, "*.yaml", logger)))
+		providers = append(providers, wcs.Must1(wcs.NewFSProvider(cfg.ProviderFSSource, logger)))
 	}
 
 	converters := []wcs.Converter{

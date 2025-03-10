@@ -2,7 +2,6 @@ package wcs_test
 
 import (
 	_ "embed"
-	"log/slog"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -13,9 +12,8 @@ import (
 )
 
 var (
-	noopLogger = slog.New(slog.DiscardHandler)
 	//go:embed testdata/environment.star
-	environmentStar []byte
+	environmentStar string
 )
 
 func TestStarlarkConverter_Compatible(t *testing.T) {
@@ -37,7 +35,7 @@ func TestStarlarkConverter_Convert(t *testing.T) {
 	})
 
 	t.Run("fails if the main entrypoint does not exist", func(t *testing.T) {
-		_, err := c.Convert(wcs.File{Data: []byte(`foo = "bar"`)}, wcs.Environment{})
+		_, err := c.Convert(wcs.File{Data: `foo = "bar"`}, wcs.Environment{})
 		assert.ErrorIs(t, err, wcs.ErrNoEntrypoint)
 	})
 
@@ -59,7 +57,7 @@ func TestStarlarkConverter_Convert(t *testing.T) {
 			True  bool
 			None  []interface{}
 		}{}
-		assert.Nil(t, yaml.Unmarshal(file.Data, &data))
+		assert.Nil(t, yaml.Unmarshal([]byte(file.Data), &data))
 
 		t.Run("deletes the name field", func(t *testing.T) {
 			assert.Equal(t, "testing", file.Name)

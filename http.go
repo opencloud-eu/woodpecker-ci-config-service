@@ -95,11 +95,11 @@ func ConfigurationHandler(logger *slog.Logger, converters []Converter, providers
 			return
 		}
 
-		logger.Debug(fmt.Sprintf("Sucessfully fetched configurations for %s, start pipeline", env.Repo.Name))
 		if err := json.NewEncoder(w).Encode(map[string]interface{}{"configs": configurations}); err != nil {
 			logger.Error(err.Error())
 			return
 		}
+		logger.Debug(fmt.Sprintf("Sucessfully fetched configurations for %s, start pipeline", env.Repo.Name))
 	})
 }
 

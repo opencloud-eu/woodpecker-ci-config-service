@@ -3,12 +3,12 @@ package wcs
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
 	"os"
 
+	"github.com/bmatcuk/doublestar/v4"
 	"go.woodpecker-ci.org/woodpecker/v3/server/forge"
 	"go.woodpecker-ci.org/woodpecker/v3/server/forge/github"
 	"go.woodpecker-ci.org/woodpecker/v3/server/model"
@@ -74,36 +74,29 @@ func (p ForgeProvider) Get(ctx context.Context, env Environment) ([]File, error)
 
 // FSProvider provides configuration files from the filesystem
 type FSProvider struct {
-	logger *slog.Logger
-	glob   string
-	fs     fs.FS
+	logger  *slog.Logger
+	pattern string
+	fs      fs.FS
 }
 
 // NewFSProvider returns a new FSProvider
-func NewFSProvider(dir, glob string, logger *slog.Logger) (FSProvider, error) {
-	dirFS := os.DirFS(dir)
-	info, err := fs.Stat(dirFS, ".")
-	switch {
-	case errors.Is(err, fs.ErrNotExist):
-		return FSProvider{}, fmt.Errorf("does not exist: %s", dir)
-	case err != nil:
+func NewFSProvider(p string, logger *slog.Logger) (FSProvider, error) {
+	base, pattern := doublestar.SplitPattern(p)
+	dirFS := os.DirFS(base)
+	if _, err := fs.Stat(dirFS, "."); err != nil {
 		return FSProvider{}, err
 	}
 
-	if !info.IsDir() {
-		return FSProvider{}, fmt.Errorf("is not a directory: %s", dir)
-	}
-
 	return FSProvider{
-		logger: logger,
-		glob:   glob,
-		fs:     dirFS,
-	}, err
+		logger:  logger,
+		pattern: pattern,
+		fs:      dirFS,
+	}, nil
 }
 
 // Get returns the configuration file for the given environment
 func (p FSProvider) Get(_ context.Context, _ Environment) ([]File, error) {
-	paths, err := fs.Glob(p.fs, p.glob)
+	paths, err := doublestar.Glob(p.fs, p.pattern)
 	if err != nil {
 		return nil, err
 	}
@@ -116,7 +109,9 @@ func (p FSProvider) Get(_ context.Context, _ Environment) ([]File, error) {
 			if err != nil {
 				return err
 			}
-			defer func() { _ = f.Close() }()
+			defer func() {
+				_ = f.Close()
+			}()
 
 			buf := new(bytes.Buffer)
 			if _, err := buf.ReadFrom(f); err != nil {
