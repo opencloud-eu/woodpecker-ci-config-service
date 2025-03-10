@@ -1,9 +1,8 @@
-package main
+package wcs
 
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"path/filepath"
@@ -31,7 +30,11 @@ func (p StarlarkConverter) Compatible(f File) bool {
 }
 
 // Convert reads, transpiles and migrates Starlark configuration files to the required format.
-func (p StarlarkConverter) Convert(f File, _ Environment) ([]File, error) {
+func (p StarlarkConverter) Convert(f File, env Environment) ([]File, error) {
+	if f.Data == "" {
+		return nil, ErrNoContent
+	}
+
 	thread := &starlark.Thread{
 		Name: "drone",
 		Print: func(_ *starlark.Thread, msg string) {
@@ -44,22 +47,23 @@ func (p StarlarkConverter) Convert(f File, _ Environment) ([]File, error) {
 		return nil, fmt.Errorf("error executing file: %v", err)
 	}
 
-	v, err := starlark.Call(thread, globals["main"], []starlark.Value{
+	entrypoint, ok := globals["main"]
+	if !ok {
+		return nil, fmt.Errorf("%w: main", ErrNoEntrypoint)
+	}
+
+	v, err := starlark.Call(thread, entrypoint, []starlark.Value{
 		starlarkstruct.FromStringDict(
 			starlark.String("context"),
 			starlark.StringDict{
 				"repo": starlarkstruct.FromStringDict(starlark.String("repo"), starlark.StringDict{
-					"name": starlark.String("name"),
-					"slug": starlark.String("slug"),
+					"name": starlark.String(env.Repo.Name),
 				}),
 				"build": starlarkstruct.FromStringDict(starlark.String("build"), starlark.StringDict{
-					"event":       starlark.String("event"),
-					"title":       starlark.String("title"),
-					"commit":      starlark.String("commit"),
-					"ref":         starlark.String("ref"),
-					"target":      starlark.String("target"),
-					"source":      starlark.String("source"),
-					"source_repo": starlark.String("source_repo"),
+					"event":  starlark.String(env.Pipeline.Event),
+					"title":  starlark.String(env.Pipeline.Title),
+					"commit": starlark.String(env.Pipeline.Commit),
+					"ref":    starlark.String(env.Pipeline.Ref),
 				}),
 			},
 		),
@@ -79,11 +83,11 @@ func (p StarlarkConverter) Convert(f File, _ Environment) ([]File, error) {
 		return nil, err
 	}
 
-	var configurations []File
+	var files []File
 	for _, workflow := range workflows {
 		name, ok := workflow["name"].(string)
-		if !ok {
-			return nil, errors.New("workflow name is missing")
+		if !ok || name == "" {
+			return nil, fmt.Errorf("%w: name", ErrMissingParam)
 		}
 		delete(workflow, "name")
 
@@ -94,11 +98,11 @@ func (p StarlarkConverter) Convert(f File, _ Environment) ([]File, error) {
 			return nil, err
 		}
 
-		configurations = append(configurations, File{
+		files = append(files, File{
 			Name: name,
-			Data: buf.Bytes(),
+			Data: buf.String(),
 		})
 	}
 
-	return configurations, nil
+	return files, nil
 }

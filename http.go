@@ -1,4 +1,4 @@
-package main
+package wcs
 
 import (
 	"crypto/ed25519"
@@ -18,7 +18,9 @@ import (
 	"github.com/yaronf/httpsign"
 )
 
-func configurationHandler(logger *slog.Logger, converters []Converter, providers []Provider) http.Handler {
+// ConfigurationHandler is a http handler
+// that fetches the configuration files for the given repository
+func ConfigurationHandler(logger *slog.Logger, converters []Converter, providers []Provider) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var env Environment
 		if err := json.NewDecoder(r.Body).Decode(&env); err != nil {
@@ -93,16 +95,16 @@ func configurationHandler(logger *slog.Logger, converters []Converter, providers
 			return
 		}
 
-		logger.Debug(fmt.Sprintf("Sucessfully fetched configurations for %s, start pipeline", env.Repo.Name))
 		if err := json.NewEncoder(w).Encode(map[string]interface{}{"configs": configurations}); err != nil {
 			logger.Error(err.Error())
 			return
 		}
+		logger.Debug(fmt.Sprintf("Sucessfully fetched configurations for %s, start pipeline", env.Repo.Name))
 	})
 }
 
-// verifierMiddleware is a middleware that verifies the given request signature
-func verifierMiddlewareFactory(pubKeyPath string) (func(http.Handler) http.Handler, error) {
+// VerifierMiddlewareFactory is a middleware that verifies the given request signature
+func VerifierMiddlewareFactory(pubKeyPath string) (func(http.Handler) http.Handler, error) {
 	if pubKeyPath == "" {
 		return nil, fmt.Errorf("public key path is empty")
 	}
@@ -140,8 +142,8 @@ func verifierMiddlewareFactory(pubKeyPath string) (func(http.Handler) http.Handl
 	}, nil
 }
 
-// allowedMethodsMiddleware is a middleware that checks if the given request method is allowed
-func allowedMethodsMiddlewareFactory(methods ...string) (func(http.Handler) http.Handler, error) {
+// AllowedMethodsMiddlewareFactory is a middleware that checks if the given request method is allowed
+func AllowedMethodsMiddlewareFactory(methods ...string) (func(http.Handler) http.Handler, error) {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if !slices.Contains(methods, r.Method) {

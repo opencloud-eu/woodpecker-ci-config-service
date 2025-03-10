@@ -37,7 +37,7 @@ export ENV_SECRET_DRONE_HTTP_PROXY=
 export ENV_SECRET_GITHUB_USERNAME=
 export ENV_SECRET_GITHUB_TOKEN=
 
-# export CONFIG_SERVICE_HOST= # optional, default: :8080
+# export CONFIG_SERVICE_ADDRESS= # optional, default: :8080
 # export CONFIG_SERVICE_CONFIG_ENDPOINT= # optional, default: /ciconfig
 # export CONFIG_SERVICE_ALLOWED_METHODS= # optional, default: POST
 # export CONFIG_SERVICE_PUBLIC_KEY= # optional, recommended
