@@ -2,7 +2,7 @@
 
 <p align="center">
   <a href="https://ci.opencloud.eu/repos/5" title="Pipeline Status">
-    <img src="https://ci.opencloud.eu/repos/5/status.svg" alt="Pipeline Status">
+    <img src="https://ci.opencloud.eu/api/badges/5/status.svg" alt="Pipeline Status">
   </a>
   <a href="https://matrix.to/#/#woodpecker:matrix.org" title="Join the Matrix space at https://matrix.to/#/#opencloud:matrix.org">
     <img src="https://img.shields.io/matrix/opencloud:matrix.org?label=matrix" alt="Matrix space">
