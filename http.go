@@ -1,4 +1,18 @@
-package wcs
+// Copyright 2025 OpenCloud GmbH
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package wccs
 
 import (
 	"crypto/ed25519"
@@ -19,7 +33,7 @@ import (
 )
 
 // ConfigurationHandler is a http handler
-// that fetches the configuration files for the given repository
+// that fetches the configuration files for the given repository.
 func ConfigurationHandler(logger *slog.Logger, converters []Converter, providers []Provider) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var env Environment
@@ -80,7 +94,7 @@ func ConfigurationHandler(logger *slog.Logger, converters []Converter, providers
 
 		// cleanup configuration names
 		for i, configuration := range configurations {
-			configuration.Name = strings.Replace(configuration.Name, "/", "__", -1)
+			configuration.Name = strings.ReplaceAll(configuration.Name, "/", "__")
 			configuration.Name = strings.TrimSuffix(configuration.Name, filepath.Ext(configuration.Name))
 			configurations[i] = configuration
 		}
@@ -95,15 +109,15 @@ func ConfigurationHandler(logger *slog.Logger, converters []Converter, providers
 			return
 		}
 
-		if err := json.NewEncoder(w).Encode(map[string]interface{}{"configs": configurations}); err != nil {
+		if err := json.NewEncoder(w).Encode(map[string]any{"configs": configurations}); err != nil {
 			logger.Error(err.Error())
 			return
 		}
-		logger.Debug(fmt.Sprintf("Sucessfully fetched configurations for %s, start pipeline", env.Repo.Name))
+		logger.Debug(fmt.Sprintf("successfully fetched configurations for %s, start pipeline", env.Repo.Name))
 	})
 }
 
-// VerifierMiddlewareFactory is a middleware that verifies the given request signature
+// VerifierMiddlewareFactory is a middleware that verifies the given request signature.
 func VerifierMiddlewareFactory(pubKeyPath string) (func(http.Handler) http.Handler, error) {
 	if pubKeyPath == "" {
 		return nil, fmt.Errorf("public key path is empty")
@@ -129,6 +143,9 @@ func VerifierMiddlewareFactory(pubKeyPath string) (func(http.Handler) http.Handl
 		httpsign.NewVerifyConfig(),
 		httpsign.Headers("@request-target", "content-digest"),
 	)
+	if err != nil {
+		return nil, err
+	}
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -142,7 +159,7 @@ func VerifierMiddlewareFactory(pubKeyPath string) (func(http.Handler) http.Handl
 	}, nil
 }
 
-// AllowedMethodsMiddlewareFactory is a middleware that checks if the given request method is allowed
+// AllowedMethodsMiddlewareFactory is a middleware that checks if the given request method is allowed.
 func AllowedMethodsMiddlewareFactory(methods ...string) (func(http.Handler) http.Handler, error) {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -17,7 +17,7 @@
 
 # define the provider types the server should use
 # DEFAULT: ["forge"]
-# AVAILABLE: wcs.ProviderType*
+# AVAILABLE: wccs.ProviderType*
 # ENV: WCS_SERVER_PROVIDERS="...,..."
 # providers=["...", "..."]
 
