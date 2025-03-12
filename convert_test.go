@@ -1,4 +1,18 @@
-package wcs_test
+// Copyright 2025 OpenCloud GmbH
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package wccs_test
 
 import (
 	_ "embed"
@@ -8,45 +22,43 @@ import (
 	"go.woodpecker-ci.org/woodpecker/v3/server/model"
 	"gopkg.in/yaml.v3"
 
-	wcs "github.com/opencloud-eu/woodpecker-ci-config-service"
+	"github.com/opencloud-eu/woodpecker-ci-config-service"
 )
 
-var (
-	//go:embed testdata/environment.star
-	environmentStar string
-)
+//go:embed testdata/environment.star
+var environmentStar string
 
 func TestStarlarkConverter_Compatible(t *testing.T) {
-	c, err := wcs.NewStarlarkConverter(noopLogger)
+	c, err := wccs.NewStarlarkConverter(noopLogger)
 	assert.Nil(t, err)
-	assert.Equal(t, true, c.Compatible(wcs.File{Name: "test.star"}))
-	assert.Equal(t, false, c.Compatible(wcs.File{Name: "test.start"}))
-	assert.Equal(t, false, c.Compatible(wcs.File{Name: "test.sta"}))
-	assert.Equal(t, false, c.Compatible(wcs.File{Name: "test.yaml"}))
+	assert.Equal(t, true, c.Compatible(wccs.File{Name: "test.star"}))
+	assert.Equal(t, false, c.Compatible(wccs.File{Name: "test.start"}))
+	assert.Equal(t, false, c.Compatible(wccs.File{Name: "test.sta"}))
+	assert.Equal(t, false, c.Compatible(wccs.File{Name: "test.yaml"}))
 }
 
 func TestStarlarkConverter_Convert(t *testing.T) {
-	c, err := wcs.NewStarlarkConverter(noopLogger)
+	c, err := wccs.NewStarlarkConverter(noopLogger)
 	assert.Nil(t, err)
 
 	t.Run("fails without content", func(t *testing.T) {
-		_, err := c.Convert(wcs.File{}, wcs.Environment{})
-		assert.ErrorIs(t, err, wcs.ErrNoContent)
+		_, err := c.Convert(wccs.File{}, wccs.Environment{})
+		assert.ErrorIs(t, err, wccs.ErrNoContent)
 	})
 
 	t.Run("fails if the main entrypoint does not exist", func(t *testing.T) {
-		_, err := c.Convert(wcs.File{Data: `foo = "bar"`}, wcs.Environment{})
-		assert.ErrorIs(t, err, wcs.ErrNoEntrypoint)
+		_, err := c.Convert(wccs.File{Data: `foo = "bar"`}, wccs.Environment{})
+		assert.ErrorIs(t, err, wccs.ErrNoEntrypoint)
 	})
 
 	t.Run("fails without a name", func(t *testing.T) {
-		_, err := c.Convert(wcs.File{Data: environmentStar}, wcs.Environment{})
-		assert.ErrorIs(t, err, wcs.ErrMissingParam)
+		_, err := c.Convert(wccs.File{Data: environmentStar}, wccs.Environment{})
+		assert.ErrorIs(t, err, wccs.ErrMissingParam)
 		assert.Contains(t, err.Error(), "name")
 	})
 
 	t.Run("converts the environment", func(t *testing.T) {
-		files, err := c.Convert(wcs.File{Data: environmentStar}, wcs.Environment{Repo: model.Repo{Name: "testing"}, Pipeline: model.Pipeline{Title: "tests"}})
+		files, err := c.Convert(wccs.File{Data: environmentStar}, wccs.Environment{Repo: model.Repo{Name: "testing"}, Pipeline: model.Pipeline{Title: "tests"}})
 		assert.Nil(t, err)
 		assert.Len(t, files, 1)
 		file := files[0]
@@ -55,7 +67,7 @@ func TestStarlarkConverter_Convert(t *testing.T) {
 			Title string
 			False bool
 			True  bool
-			None  []interface{}
+			None  []any
 		}{}
 		assert.Nil(t, yaml.Unmarshal([]byte(file.Data), &data))
 

@@ -1,4 +1,18 @@
-package wcs
+// Copyright 2025 OpenCloud GmbH
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package wccs
 
 import (
 	"bytes"
@@ -7,6 +21,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"os"
+	"sync"
 
 	"github.com/bmatcuk/doublestar/v4"
 	"go.woodpecker-ci.org/woodpecker/v3/server/forge"
@@ -22,13 +37,13 @@ const (
 	ProviderTypeFS    ProviderType = "fs"
 )
 
-// ForgeProvider wraps available woodpecker forges
+// ForgeProvider wraps available woodpecker forges.
 type ForgeProvider struct {
 	logger *slog.Logger
 	forges map[model.ForgeType]forge.Forge
 }
 
-// NewForgeProvider returns a new ForgeProvider
+// NewForgeProvider returns a new ForgeProvider.
 func NewForgeProvider(logger *slog.Logger) (ForgeProvider, error) {
 	forgeTypeGithub, err := github.New(github.Opts{
 		URL:      "https://github.com",
@@ -46,7 +61,7 @@ func NewForgeProvider(logger *slog.Logger) (ForgeProvider, error) {
 	}, nil
 }
 
-// Get returns the configuration file for the given environment
+// Get returns the configuration file for the given environment.
 func (p ForgeProvider) Get(ctx context.Context, env Environment) ([]File, error) {
 	f, ok := p.forges[env.Netrc.Type]
 	if !ok {
@@ -72,14 +87,14 @@ func (p ForgeProvider) Get(ctx context.Context, env Environment) ([]File, error)
 	}}, nil
 }
 
-// FSProvider provides configuration files from the filesystem
+// FSProvider provides configuration files from the filesystem.
 type FSProvider struct {
 	logger  *slog.Logger
 	pattern string
 	fs      fs.FS
 }
 
-// NewFSProvider returns a new FSProvider
+// NewFSProvider returns a new FSProvider.
 func NewFSProvider(p string, logger *slog.Logger) (FSProvider, error) {
 	base, pattern := doublestar.SplitPattern(p)
 	dirFS := os.DirFS(base)
@@ -94,7 +109,7 @@ func NewFSProvider(p string, logger *slog.Logger) (FSProvider, error) {
 	}, nil
 }
 
-// Get returns the configuration file for the given environment
+// Get returns the configuration file for the given environment.
 func (p FSProvider) Get(_ context.Context, _ Environment) ([]File, error) {
 	paths, err := doublestar.Glob(p.fs, p.pattern)
 	if err != nil {
@@ -102,6 +117,8 @@ func (p FSProvider) Get(_ context.Context, _ Environment) ([]File, error) {
 	}
 
 	var files []File
+	var mutex sync.Mutex
+	// lala
 	var eg errgroup.Group
 	for _, fp := range paths {
 		eg.Go(func() error {
@@ -118,10 +135,12 @@ func (p FSProvider) Get(_ context.Context, _ Environment) ([]File, error) {
 				return err
 			}
 
+			mutex.Lock()
 			files = append(files, File{
 				Name: fp,
 				Data: buf.String(),
 			})
+			mutex.Unlock()
 
 			return nil
 		})

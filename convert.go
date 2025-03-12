@@ -1,4 +1,18 @@
-package wcs
+// Copyright 2025 OpenCloud GmbH
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package wccs
 
 import (
 	"bytes"
@@ -44,7 +58,7 @@ func (p StarlarkConverter) Convert(f File, env Environment) ([]File, error) {
 
 	globals, err := starlark.ExecFileOptions(syntax.LegacyFileOptions(), thread, "", f.Data, nil)
 	if err != nil {
-		return nil, fmt.Errorf("error executing file: %v", err)
+		return nil, fmt.Errorf("%w: error executing file", err)
 	}
 
 	entrypoint, ok := globals["main"]
@@ -69,7 +83,7 @@ func (p StarlarkConverter) Convert(f File, env Environment) ([]File, error) {
 		),
 	}, nil)
 	if err != nil {
-		return nil, fmt.Errorf("error building conf: %v", err)
+		return nil, fmt.Errorf("%w: error building conf", err)
 	}
 
 	// toDo: shame on me....
@@ -78,7 +92,7 @@ func (p StarlarkConverter) Convert(f File, env Environment) ([]File, error) {
 	hacky = strings.ReplaceAll(hacky, "True", "true")
 	hacky = strings.ReplaceAll(hacky, "None", "[]")
 
-	var workflows []map[string]interface{}
+	var workflows []map[string]any
 	if err := json.Unmarshal([]byte(hacky), &workflows); err != nil {
 		return nil, err
 	}
@@ -93,7 +107,7 @@ func (p StarlarkConverter) Convert(f File, env Environment) ([]File, error) {
 
 		buf := new(bytes.Buffer)
 		enc := yaml.NewEncoder(buf)
-		enc.SetIndent(2)
+		enc.SetIndent(2) //nolint:mnd
 		if err := enc.Encode(workflow); err != nil {
 			return nil, err
 		}

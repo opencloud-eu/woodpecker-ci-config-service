@@ -1,3 +1,4 @@
+*.out
 .envrc
 bin/
 testenv/conf/legacy
