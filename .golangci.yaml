@@ -33,6 +33,7 @@ linters:
     - errcheck
     - gofmt
     - gosimple
+    - goimports
     - govet
     - ineffassign
     - misspell
@@ -49,7 +50,6 @@ linters:
     - dogsled
     - durationcheck
     - errchkjson
-    - gochecknoinits
     - goheader
     - gomoddirectives
     - gomodguard

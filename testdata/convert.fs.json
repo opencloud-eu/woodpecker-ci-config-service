@@ -1,0 +1,12 @@
+{
+  "repo": {
+    "name": "woodpecker-ci-config-service",
+    "config_file": "environment.star"
+  },
+  "pipeline": {
+    "event":  "EXAMPLE_EVENT",
+    "title":  "EXAMPLE_TITLE",
+    "commit": "EXAMPLE_COMMIT",
+    "ref":    "EXAMPLE_REF"
+  }
+}

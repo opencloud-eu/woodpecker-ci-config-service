@@ -17,7 +17,7 @@ require (
 	github.com/spf13/viper v1.19.0
 	github.com/stretchr/testify v1.10.0
 	github.com/yaronf/httpsign v0.3.2
-	go.starlark.net v0.0.0-20250205221240-492d3672b3f4
+	go.starlark.net v0.0.0-20250225190231-0d3f41d403af
 	go.woodpecker-ci.org/woodpecker/v3 v3.2.1-0.20250228130730-434670ddbda5
 	golang.org/x/sync v0.12.0
 	gopkg.in/yaml.v3 v3.0.1

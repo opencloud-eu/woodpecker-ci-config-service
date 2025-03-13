@@ -22,7 +22,7 @@ import (
 	"go.woodpecker-ci.org/woodpecker/v3/server/model"
 	"gopkg.in/yaml.v3"
 
-	"github.com/opencloud-eu/woodpecker-ci-config-service"
+	wccs "github.com/opencloud-eu/woodpecker-ci-config-service"
 )
 
 //go:embed testdata/environment.star
@@ -57,6 +57,18 @@ func TestStarlarkConverter_Convert(t *testing.T) {
 		assert.Contains(t, err.Error(), "name")
 	})
 
+	t.Run("adds the YAML extension", func(t *testing.T) {
+		build := func(name string) wccs.File {
+			files, err := c.Convert(wccs.File{Data: environmentStar}, wccs.Environment{Repo: model.Repo{Name: name}})
+			assert.Nil(t, err)
+			assert.Len(t, files, 1)
+			return files[0]
+		}
+
+		assert.Equal(t, "testing.yaml", build("testing").Name)
+		assert.Equal(t, "testing.yaml", build("testing.json").Name)
+	})
+
 	t.Run("converts the environment", func(t *testing.T) {
 		files, err := c.Convert(wccs.File{Data: environmentStar}, wccs.Environment{Repo: model.Repo{Name: "testing"}, Pipeline: model.Pipeline{Title: "tests"}})
 		assert.Nil(t, err)
@@ -72,7 +84,6 @@ func TestStarlarkConverter_Convert(t *testing.T) {
 		assert.Nil(t, yaml.Unmarshal([]byte(file.Data), &data))
 
 		t.Run("deletes the name field", func(t *testing.T) {
-			assert.Equal(t, "testing", file.Name)
 			assert.Empty(t, data.Name)
 		})
 

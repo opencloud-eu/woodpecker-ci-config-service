@@ -24,7 +24,7 @@ import (
 	"github.com/bmatcuk/doublestar/v4"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/opencloud-eu/woodpecker-ci-config-service"
+	wccs "github.com/opencloud-eu/woodpecker-ci-config-service"
 )
 
 func TestNewFSProvider(t *testing.T) {

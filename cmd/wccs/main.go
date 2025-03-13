@@ -15,7 +15,7 @@
 package main
 
 import (
-	"github.com/opencloud-eu/woodpecker-ci-config-service"
+	wccs "github.com/opencloud-eu/woodpecker-ci-config-service"
 	"github.com/opencloud-eu/woodpecker-ci-config-service/internal/cmd"
 )
 
