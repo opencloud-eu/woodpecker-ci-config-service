@@ -118,7 +118,6 @@ func (p FSProvider) Get(_ context.Context, _ Environment) ([]File, error) {
 
 	var files []File
 	var mutex sync.Mutex
-	// lala
 	var eg errgroup.Group
 	for _, fp := range paths {
 		eg.Go(func() error {
