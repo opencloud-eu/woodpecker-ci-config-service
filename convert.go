@@ -86,7 +86,7 @@ func (p StarlarkConverter) Convert(f File, env Environment) ([]File, error) {
 	thread := &starlark.Thread{
 		Name: "drone",
 		Print: func(_ *starlark.Thread, msg string) {
-			p.logger.Info(msg)
+			p.logger.Debug(msg)
 		},
 	}
 
