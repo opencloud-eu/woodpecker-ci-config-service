@@ -15,8 +15,9 @@
 package cmd
 
 import (
+	"errors"
+	"log"
 	"log/slog"
-	"net/http"
 	"os"
 	"strings"
 
@@ -24,7 +25,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"github.com/opencloud-eu/woodpecker-ci-config-service"
+	wccs "github.com/opencloud-eu/woodpecker-ci-config-service"
 )
 
 var (
@@ -35,53 +36,48 @@ var (
 		// the log level for the service.
 		LogLevel slog.Level `mapstructure:"log_level"`
 		// server related configuration.
-		Server struct {
-			// which host to listen on.
-			Address string
-			// the public key to verify incoming requests.
-			PublicKey string `mapstructure:"public_key"`
-			// the providers which are used to get the configuration files.
-			Providers []wccs.ProviderType
-			// the file system source for the fs provider.
-			ProviderFSSource string `mapstructure:"provider_fs_source"`
-			// the endpoint to listen on.
-			ConfigEndpoint string `mapstructure:"config_endpoint"`
-			// the allowed methods which are allowed for the config service.
-			ConfigEndpointMethods []string `mapstructure:"config_endpoint_methods"`
-		}
+		Server serverConfiguration
+		// convert related configuration.
+		Convert convertConfiguration
 	}
+	// default logger.
+	logger = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: cfg.LogLevel,
+	}))
 )
 
-func Execute() error {
-	cobra.OnInitialize(func() {
-		viper.SetDefault("log_level", slog.LevelError)
-		viper.SetDefault("server.address", ":8080")
-		viper.SetDefault("server.public_key", "")
-		viper.SetDefault("server.providers", []wccs.ProviderType{wccs.ProviderTypeForge})
-		viper.SetDefault("server.provider_fs_source", "")
-		viper.SetDefault("server.config_endpoint", "/ciconfig")
-		viper.SetDefault("server.config_endpoint_methods", []string{http.MethodPost})
+func init() {
+	cobra.OnInitialize(onInitialize)
 
-		switch {
-		case cfgFile != "":
-			viper.SetConfigFile(cfgFile)
-		default:
-			viper.AddConfigPath(wccs.Must1(os.UserHomeDir()))
-			viper.SetConfigType("toml")
-			viper.SetConfigName(".wccs")
-		}
-		wccs.Must(viper.ReadInConfig())
-
-		viper.SetEnvPrefix("WCS")
-		viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
-		viper.AutomaticEnv()
-
-		wccs.Must(viper.Unmarshal(&cfg, viper.DecodeHook(mapstructure.TextUnmarshallerHookFunc())))
-	})
+	viper.SetDefault("log_level", slog.LevelError)
 
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.wccs.yaml)")
+}
 
-	rootCmd.AddCommand(serverCmd)
-
+func Execute() error {
 	return rootCmd.Execute()
+}
+
+func onInitialize() {
+	switch {
+	case cfgFile != "":
+		viper.SetConfigFile(cfgFile)
+	default:
+		viper.AddConfigPath(wccs.Must1(os.UserHomeDir()))
+		viper.SetConfigType("toml")
+		viper.SetConfigName(".wccs")
+	}
+
+	switch err := viper.ReadInConfig(); {
+	case errors.As(err, &viper.ConfigFileNotFoundError{}):
+		break
+	case err != nil:
+		log.Fatal(err) //nolint:forbidigo
+	}
+
+	viper.SetEnvPrefix("WCCS")
+	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	viper.AutomaticEnv()
+
+	wccs.Must(viper.Unmarshal(&cfg, viper.DecodeHook(mapstructure.TextUnmarshallerHookFunc())))
 }

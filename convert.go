@@ -23,11 +23,45 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/samber/lo"
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
 	"go.starlark.net/syntax"
 	"gopkg.in/yaml.v3"
 )
+
+// Converters contains multiple converters.
+type Converters []Converter
+
+// Convert converts multiple files using the available converters.
+func (converters Converters) Convert(files []File, env Environment) ([]File, error) {
+	var results []File
+	for _, file := range files {
+		for _, converter := range converters {
+			if !converter.Compatible(file) {
+				continue
+			}
+
+			converted, err := converter.Convert(file, env)
+			if err != nil {
+				return nil, err
+			}
+
+			results = append(results, converted...)
+			break // only one converter should be used
+		}
+	}
+
+	if duplicates := lo.FindDuplicatesBy(results, func(result File) string {
+		return result.Name
+	}); len(duplicates) != 0 {
+		return nil, fmt.Errorf("conversion contains with dublicated files: %v", lo.Map(duplicates, func(f File, _ int) string {
+			return f.Name
+		}))
+	}
+
+	return results, nil
+}
 
 // StarlarkConverter is a converter that reads, transpiles and migrates Starlark configuration files.
 type StarlarkConverter struct {
@@ -52,7 +86,7 @@ func (p StarlarkConverter) Convert(f File, env Environment) ([]File, error) {
 	thread := &starlark.Thread{
 		Name: "drone",
 		Print: func(_ *starlark.Thread, msg string) {
-			p.logger.Info(msg)
+			p.logger.Debug(msg)
 		},
 	}
 
@@ -111,9 +145,8 @@ func (p StarlarkConverter) Convert(f File, env Environment) ([]File, error) {
 		if err := enc.Encode(workflow); err != nil {
 			return nil, err
 		}
-
 		files = append(files, File{
-			Name: name,
+			Name: strings.TrimSuffix(name, filepath.Ext(name)) + ".yaml",
 			Data: buf.String(),
 		})
 	}

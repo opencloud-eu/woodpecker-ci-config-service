@@ -4,5 +4,6 @@ bin/
 testenv/conf/legacy
 testenv/volumes/minio/*
 testenv/volumes/squid/*
+testenv/volumes/nginx/*
 !testenv/volumes/squid/squid.conf
 testenv/volumes/woodpecker-*

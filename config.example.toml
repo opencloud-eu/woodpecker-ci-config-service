@@ -1,0 +1,55 @@
+# DEFAULT: "error"
+# AVAILABLE: slog.Level*
+# ENV: WCCS_LOG_LEVEL="..."
+# log_level = "..."
+
+[server]
+
+# define the address the server listens on
+# DEFAULT: ":8080"
+# ENV: WCCS_SERVER_ADDRESS="..."
+# address = "..."
+
+# define the public key which is used to sign the config request
+# DEFAULT: ""
+# ENV: WCCS_SERVER_PUBLIC_KEY=""
+# public_key=""
+
+# define the config endpoint
+# DEFAULT: "/ciconfig"
+# ENV: WCCS_SERVER_CONFIG_ENDPOINT="..."
+# config_endpoint = "..."
+
+# define the allowed methods for the config endpoint
+# DEFAULT: "POST"
+# AVAILABLE: http.Method*
+# ENV: WCCS_SERVER_CONFIG_ENDPOINT_METHODS="...,..."
+# config_endpoint_methods = ["...", "..."]
+
+# define the provider types the server should use
+# DEFAULT: ["forge"]
+# AVAILABLE: wccs.ProviderType*
+# ENV: WCCS_SERVER_PROVIDERS="...,..."
+# providers=["...", "..."]
+
+[server.provider.fs]
+
+# define the source for the fs provider
+# DEFAULT: ""
+# ENV: WCCS_SERVER_PROVIDER_FS_SOURCE="..."
+# source="..."
+
+[convert]
+
+# define the provider types the converter should use
+# DEFAULT: ["forge"]
+# AVAILABLE: wccs.ProviderType*
+# ENV: WCCS_CONVERT_PROVIDERS="...,..."
+# providers=["...", "..."]
+
+[convert.provider.fs]
+
+# define the source for the fs provider
+# DEFAULT: ""
+# ENV: WCCS_CONVERT_PROVIDER_FS_SOURCE="..."
+# source="..."

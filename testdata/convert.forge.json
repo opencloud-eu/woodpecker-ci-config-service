@@ -1,0 +1,17 @@
+{
+  "repo": {
+    "name": "woodpecker-ci-config-service",
+    "owner": "opencloud-eu",
+    "config_file": "testdata/environment.star"
+  },
+  "pipeline": {
+    "commit": "55c0e960b3953dee7c8c1a8f3011a3300273181e",
+    "event":  "EXAMPLE_EVENT",
+    "title":  "EXAMPLE_TITLE",
+    "ref":    "EXAMPLE_REF"
+  },
+  "netrc": {
+    "type": "github",
+    "login": "${ENV_SECRET_GITHUB_TOKEN}"
+  }
+}
