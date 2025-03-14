@@ -16,10 +16,12 @@ package cmd
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -50,11 +52,6 @@ var convertCmd = &cobra.Command{
 			log.Fatal("no env provided") //nolint: forbidigo
 		}
 
-		out := cmd.Flag("out")
-		if out == nil || out.Value.String() == "" {
-			log.Fatal("no out provided") //nolint: forbidigo
-		}
-
 		var env wccs.Environment
 		wccs.Must(json.Unmarshal([]byte(
 			os.ExpandEnv(
@@ -80,13 +77,35 @@ var convertCmd = &cobra.Command{
 		providedFiles := wccs.Must1(providers.Get(cmd.Context(), env))
 		configurationFiles := wccs.Must1(converters.Convert(providedFiles, env))
 
-		for _, configurationFile := range configurationFiles {
-			fp := filepath.Join(out.Value.String(), configurationFile.Name)
-			wccs.Must(os.MkdirAll(filepath.Dir(fp), 0o770)) //nolint: mnd
+		out := cmd.Flag("out")
+		var report func(f wccs.File) error
+		switch {
+		case out != nil && out.Value.String() != "":
+			report = func(c wccs.File) error {
+				fp := filepath.Join(out.Value.String(), c.Name)
+				if err := os.MkdirAll(filepath.Dir(fp), 0o770); err != nil { //nolint: mnd
+					return err
+				}
 
-			f := wccs.Must1(os.Create(fp))
-			wccs.Must1(f.Write([]byte(configurationFile.Data)))
-			wccs.Must(f.Close())
+				f, err := os.Create(fp)
+				if err != nil {
+					return err
+				}
+
+				if _, err := f.Write([]byte(c.Data)); err != nil {
+					return err
+				}
+
+				return err
+			}
+		default:
+			report = func(c wccs.File) error {
+				_, err := fmt.Fprintf(os.Stdout, "\n%s\n%s\n%s\n", c.Name, strings.Repeat("=", len(c.Name)), c.Data)
+				return err
+			}
+		}
+		for _, f := range configurationFiles {
+			wccs.Must(report(f))
 		}
 	},
 }
