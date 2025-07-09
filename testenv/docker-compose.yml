@@ -1,6 +1,6 @@
 services:
   woodpecker-server:
-    image: woodpeckerci/woodpecker-server:v3.3
+    image: woodpeckerci/woodpecker-server:v3.7
     ports:
       - "8000:8000"
     volumes:

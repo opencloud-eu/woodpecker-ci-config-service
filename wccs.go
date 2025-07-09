@@ -70,9 +70,6 @@ func Must(err error) {
 
 // Must1 is a helper that panics if the error is not nil.
 func Must1[T any](t T, err error) T {
-	if err != nil {
-		Must(err)
-	}
-
+	Must(err)
 	return t
 }

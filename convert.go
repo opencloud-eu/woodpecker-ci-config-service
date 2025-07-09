@@ -104,14 +104,21 @@ func (p StarlarkConverter) Convert(f File, env Environment) ([]File, error) {
 		starlarkstruct.FromStringDict(
 			starlark.String("context"),
 			starlark.StringDict{
+				//IMPORTANT: just a hint, never add any env.Netrc values to the context, this contains sensitive information!!!
 				"repo": starlarkstruct.FromStringDict(starlark.String("repo"), starlark.StringDict{
-					"name": starlark.String(env.Repo.Name),
+					"owner":    starlark.String(env.Repo.Owner),
+					"name":     starlark.String(env.Repo.Name),
+					"fullName": starlark.String(env.Repo.FullName),
+					"branch":   starlark.String(env.Repo.Branch),
 				}),
 				"build": starlarkstruct.FromStringDict(starlark.String("build"), starlark.StringDict{
-					"event":  starlark.String(env.Pipeline.Event),
-					"title":  starlark.String(env.Pipeline.Title),
-					"commit": starlark.String(env.Pipeline.Commit),
-					"ref":    starlark.String(env.Pipeline.Ref),
+					"event":   starlark.String(env.Pipeline.Event),
+					"title":   starlark.String(env.Pipeline.Title),
+					"commit":  starlark.String(env.Pipeline.Commit),
+					"ref":     starlark.String(env.Pipeline.Ref),
+					"branch":  starlark.String(env.Pipeline.Branch),
+					"message": starlark.String(env.Pipeline.Message),
+					"sender":  starlark.String(env.Pipeline.Sender),
 				}),
 			},
 		),
