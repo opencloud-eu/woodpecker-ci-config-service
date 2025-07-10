@@ -1,0 +1,33 @@
+variables:
+  - &environment
+    HTTP_PROXY:
+      from_secret: ci_http_proxy
+    HTTPS_PROXY:
+      from_secret: ci_http_proxy
+
+when:
+  - event: tag
+    branch: ${CI_REPO_DEFAULT_BRANCH}
+
+steps:
+  build_and_publish:
+    image: woodpeckerci/plugin-docker-buildx
+    environment: *environment
+    settings:
+      repo: ",quay.io/"
+      dockerfile: Dockerfile
+      platforms:
+        - linux/amd64
+        - linux/arm64
+      logins:
+        - registry: "https://index.docker.io/v1/"
+          username:
+            from_secret: docker_username
+          password:
+            from_secret: docker_password
+
+        - registry: ""
+          username:
+            from_secret: quay_username
+          password:
+            from_secret: quay_password
