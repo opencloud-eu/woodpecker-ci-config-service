@@ -7,7 +7,7 @@ variables:
 
 when:
   - event: tag
-    branch: ${CI_REPO_DEFAULT_BRANCH}
+#    branch: ${CI_REPO_DEFAULT_BRANCH}
 
 steps:
   build_and_publish:
