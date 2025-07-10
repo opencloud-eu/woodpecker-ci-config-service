@@ -47,12 +47,7 @@ func (t timestampValue) ToString(b time.Time) string {
 	return fmt.Sprintf("%v", b)
 }
 
-// Timestamp constructor(for internal testing only)
-func newTimestamp(timestamp time.Time) *timestampValue {
-	return &timestampValue{timestamp: &timestamp}
-}
-
-// Below functions are to satisfy the flag.Value interface
+// Below functions are to satisfy the Value interface
 
 // Parses the string value to timestamp
 func (t *timestampValue) Set(value string) error {
@@ -91,7 +86,7 @@ func (t *timestampValue) Set(value string) error {
 
 	defaultTS, _ := time.ParseInLocation(time.TimeOnly, time.TimeOnly, timestamp.Location())
 
-	n := time.Now()
+	n := time.Now().In(timestamp.Location())
 
 	// If format is missing date (or year only), set it explicitly to current
 	if timestamp.Truncate(time.Hour*24).UnixNano() == defaultTS.Truncate(time.Hour*24).UnixNano() {
@@ -128,11 +123,6 @@ func (t *timestampValue) Set(value string) error {
 // String returns a readable representation of this value (for usage defaults)
 func (t *timestampValue) String() string {
 	return fmt.Sprintf("%#v", t.timestamp)
-}
-
-// Value returns the timestamp value stored in the flag
-func (t *timestampValue) Value() *time.Time {
-	return t.timestamp
 }
 
 // Get returns the flag structure

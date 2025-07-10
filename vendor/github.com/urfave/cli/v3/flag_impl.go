@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"reflect"
+	"strings"
 )
 
 // Value represents a value as used by cli.
@@ -16,29 +17,6 @@ type Value interface {
 
 type boolFlag interface {
 	IsBoolFlag() bool
-}
-
-type fnValue struct {
-	fn     func(string) error
-	isBool bool
-	v      Value
-}
-
-func (f *fnValue) Get() any           { return f.v.Get() }
-func (f *fnValue) Set(s string) error { return f.fn(s) }
-func (f *fnValue) String() string {
-	if f.v == nil {
-		return ""
-	}
-	return f.v.String()
-}
-
-func (f *fnValue) IsBoolFlag() bool { return f.isBool }
-func (f *fnValue) Count() int {
-	if s, ok := f.v.(Countable); ok {
-		return s.Count()
-	}
-	return 0
 }
 
 // ValueCreator is responsible for creating a flag.Value emulation
@@ -98,8 +76,87 @@ func (f *FlagBase[T, C, V]) GetValue() string {
 	return fmt.Sprintf("%v", f.Value)
 }
 
-// Apply populates the flag given the flag set and environment
-func (f *FlagBase[T, C, V]) Apply(set *flag.FlagSet) error {
+// TypeName returns the type of the flag.
+func (f *FlagBase[T, C, V]) TypeName() string {
+	ty := reflect.TypeOf(f.Value)
+	if ty == nil {
+		return ""
+	}
+	// convert the typename to generic type
+	convertToGenericType := func(name string) string {
+		prefixMap := map[string]string{
+			"float": "float",
+			"int":   "int",
+			"uint":  "uint",
+		}
+		for prefix, genericType := range prefixMap {
+			if strings.HasPrefix(name, prefix) {
+				return genericType
+			}
+		}
+		return strings.ToLower(name)
+	}
+
+	switch ty.Kind() {
+	// if it is a Slice, then return the slice's inner type. Will nested slices be used in the future?
+	case reflect.Slice:
+		elemType := ty.Elem()
+		return convertToGenericType(elemType.Name())
+	// if it is a Map, then return the map's key and value types.
+	case reflect.Map:
+		keyType := ty.Key()
+		valueType := ty.Elem()
+		return fmt.Sprintf("%s=%s", convertToGenericType(keyType.Name()), convertToGenericType(valueType.Name()))
+	default:
+		return convertToGenericType(ty.Name())
+	}
+}
+
+// PostParse populates the flag given the flag set and environment
+func (f *FlagBase[T, C, V]) PostParse() error {
+	tracef("postparse (flag=%[1]q)", f.Name)
+
+	if !f.hasBeenSet {
+		if val, source, found := f.Sources.LookupWithSource(); found {
+			if val != "" || reflect.TypeOf(f.Value).Kind() == reflect.String {
+				if err := f.Set(f.Name, val); err != nil {
+					return fmt.Errorf(
+						"could not parse %[1]q as %[2]T value from %[3]s for flag %[4]s: %[5]s",
+						val, f.Value, source, f.Name, err,
+					)
+				}
+			} else if val == "" && reflect.TypeOf(f.Value).Kind() == reflect.Bool {
+				_ = f.Set(f.Name, "false")
+			}
+
+			f.hasBeenSet = true
+		}
+	}
+
+	return nil
+}
+
+func (f *FlagBase[T, C, V]) PreParse() error {
+	newVal := f.Value
+
+	if f.Destination == nil {
+		f.value = f.creator.Create(newVal, new(T), f.Config)
+	} else {
+		f.value = f.creator.Create(newVal, f.Destination, f.Config)
+	}
+
+	// Validate the given default or values set from external sources as well
+	if f.Validator != nil && f.ValidateDefaults {
+		if err := f.Validator(f.value.Get().(T)); err != nil {
+			return err
+		}
+	}
+	f.applied = true
+	return nil
+}
+
+// Set applies given value from string
+func (f *FlagBase[T, C, V]) Set(_ string, val string) error {
 	tracef("apply (flag=%[1]q)", f.Name)
 
 	// TODO move this phase into a separate flag initialization function
@@ -109,69 +166,34 @@ func (f *FlagBase[T, C, V]) Apply(set *flag.FlagSet) error {
 	// flag can be applied to different flag sets multiple times while still
 	// keeping the env set.
 	if !f.applied || f.Local {
-		newVal := f.Value
-
-		if val, source, found := f.Sources.LookupWithSource(); found {
-			tmpVal := f.creator.Create(f.Value, new(T), f.Config)
-			if val != "" || reflect.TypeOf(f.Value).Kind() == reflect.String {
-				if err := tmpVal.Set(val); err != nil {
-					return fmt.Errorf(
-						"could not parse %[1]q as %[2]T value from %[3]s for flag %[4]s: %[5]s",
-						val, f.Value, source, f.Name, err,
-					)
-				}
-			} else if val == "" && reflect.TypeOf(f.Value).Kind() == reflect.Bool {
-				_ = tmpVal.Set("false")
-			}
-
-			newVal = tmpVal.Get().(T)
-			f.hasBeenSet = true
+		if err := f.PreParse(); err != nil {
+			return err
 		}
-
-		if f.Destination == nil {
-			f.value = f.creator.Create(newVal, new(T), f.Config)
-		} else {
-			f.value = f.creator.Create(newVal, f.Destination, f.Config)
-		}
-
-		// Validate the given default or values set from external sources as well
-		if f.Validator != nil && f.ValidateDefaults {
-			if err := f.Validator(f.value.Get().(T)); err != nil {
-				return err
-			}
-		}
+		f.applied = true
 	}
 
-	isBool := false
-	if b, ok := f.value.(boolFlag); ok && b.IsBoolFlag() {
-		isBool = true
+	if f.count == 1 && f.OnlyOnce {
+		return fmt.Errorf("cant duplicate this flag")
 	}
 
-	for _, name := range f.Names() {
-		set.Var(&fnValue{
-			fn: func(val string) error {
-				if f.count == 1 && f.OnlyOnce {
-					return fmt.Errorf("cant duplicate this flag")
-				}
-				f.count++
-				if err := f.value.Set(val); err != nil {
-					return err
-				}
-				f.hasBeenSet = true
-				if f.Validator != nil {
-					if err := f.Validator(f.value.Get().(T)); err != nil {
-						return err
-					}
-				}
-				return nil
-			},
-			isBool: isBool,
-			v:      f.value,
-		}, name, f.Usage)
+	f.count++
+	if err := f.value.Set(val); err != nil {
+		return err
 	}
-
-	f.applied = true
+	f.hasBeenSet = true
+	if f.Validator != nil {
+		if err := f.Validator(f.value.Get().(T)); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+func (f *FlagBase[T, C, V]) Get() any {
+	if f.value != nil {
+		return f.value.Get()
+	}
+	return f.Value
 }
 
 // IsDefaultVisible returns true if the flag is not hidden, otherwise false
@@ -241,7 +263,7 @@ func (f *FlagBase[T, C, V]) GetDefaultText() string {
 // RunAction executes flag action if set
 func (f *FlagBase[T, C, V]) RunAction(ctx context.Context, cmd *Command) error {
 	if f.Action != nil {
-		return f.Action(ctx, cmd, cmd.Value(f.Name).(T))
+		return f.Action(ctx, cmd, f.value.Get().(T))
 	}
 
 	return nil
@@ -261,4 +283,15 @@ func (f *FlagBase[T, C, VC]) IsMultiValueFlag() bool {
 // IsLocal returns false if flag needs to be persistent across subcommands
 func (f *FlagBase[T, C, VC]) IsLocal() bool {
 	return f.Local
+}
+
+// IsBoolFlag returns whether the flag doesnt need to accept args
+func (f *FlagBase[T, C, VC]) IsBoolFlag() bool {
+	bf, ok := f.value.(boolFlag)
+	return ok && bf.IsBoolFlag()
+}
+
+// Count returns the number of times this flag has been invoked
+func (f *FlagBase[T, C, VC]) Count() int {
+	return f.count
 }
