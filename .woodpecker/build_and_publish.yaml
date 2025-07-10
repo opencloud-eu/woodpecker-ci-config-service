@@ -7,7 +7,7 @@ steps:
   build_and_publish:
     image: woodpeckerci/plugin-docker-buildx
     settings:
-      repo: ",quay.io/"
+      repo: "index.docker.io,quay.io/"
       dockerfile: Dockerfile
       platforms:
         - linux/amd64
@@ -23,7 +23,7 @@ steps:
           password:
             from_secret: docker_password
 
-        - registry: ""
+        - registry: "https://quay.io"
           username:
             from_secret: quay_username
           password:
