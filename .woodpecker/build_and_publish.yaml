@@ -6,7 +6,6 @@ when:
 steps:
   build_and_publish:
     image: woodpeckerci/plugin-docker-buildx
-    environment: *environment
     settings:
       repo: ",quay.io/"
       dockerfile: Dockerfile
