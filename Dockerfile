@@ -1,15 +1,18 @@
-FROM docker.io/alpine:3.22
+# syntax=docker/dockerfile:1
 
-ARG TARGETOS TARGETARCH
-RUN apk add -U --no-cache ca-certificates && \
-  adduser -u 1000 -g 1000 wccs -D && \
-  mkdir -p /var/lib/wccs && \
-  chown -R wccs:wccs /var/lib/wccs
+FROM golang:1.24-alpine AS build
+ARG TARGETOS
+ARG TARGETARCH
 
-ENV GODEBUG=netdns=go
-ENV XDG_CACHE_HOME=/var/lib/wccs
-ENV XDG_DATA_HOME=/var/lib/wccs
-EXPOSE 8080/tcp 9000/tcp 80/tcp 443/tcp
+WORKDIR /opencloud-eu/woodpecker-config-service
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+RUN GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" go build -o bin/wccs ./cmd/wccs
+
+FROM scratch
 
 LABEL maintainer="OpenCloud GmbH <devops@opencloud.eu>" \
   org.opencontainers.image.title="OpenCloud woodpecker ci config service" \
@@ -19,8 +22,7 @@ LABEL maintainer="OpenCloud GmbH <devops@opencloud.eu>" \
   org.opencontainers.image.documentation="https://github.com/opencloud-eu/woodpecker-ci-config-service" \
   org.opencontainers.image.source="https://github.com/opencloud-eu/woodpecker-ci-config-service"
 
-COPY dist/${TARGETOS}_${TARGETARCH}/wccs /bin/
+COPY --from=build /opencloud-eu/woodpecker-config-service/bin/wccs /usr/bin/wccs
 
-USER wccs
-
-ENTRYPOINT ["/bin/wccs"]
+EXPOSE 8080/tcp
+ENTRYPOINT ["wccs"]
