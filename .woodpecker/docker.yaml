@@ -1,0 +1,69 @@
+variables:
+  - &golang_image 'docker.io/golang:1.24'
+  - &xgo_image 'docker.io/techknowlogick/xgo:go-1.24.x'
+  - &buildx_plugin 'docker.io/woodpeckerci/plugin-docker-buildx:latest'
+  - &publish_repos 'opencloudeu/wccs,quay.io/opencloudeu/wccs'
+  - &publish_platforms 'linux/arm64/v8,linux/amd64'
+  - &compile_platforms 'linux|arm64/v8;linux|amd64'
+  - publish_logins: &publish_logins
+      - registry: https://index.docker.io/v1/
+        username:
+          from_secret: docker_username
+        password:
+          from_secret: docker_password
+      - registry: https://quay.io
+        username:
+          from_secret: quay_username
+        password:
+          from_secret: quay_password
+
+when:
+  - event: [tag]
+    branch: ${CI_REPO_DEFAULT_BRANCH}
+
+steps:
+  vendor:
+    image: *golang_image
+    pull: true
+    commands:
+      - go mod vendor
+    when: &when-release
+      event: tag
+
+  compile:
+    depends_on:
+      - vendor
+    image: *xgo_image
+    pull: true
+    commands:
+      - apt update
+      - apt install -y tree
+      - make cross-compile
+    environment:
+      PLATFORMS: *compile_platforms
+    when: *when-release
+
+  publish:
+    depends_on:
+      - compile
+    image: *buildx_plugin
+    settings:
+      repo: *publish_repos
+      dockerfile: docker/Dockerfile.multiarch.rootless
+      platforms: *publish_platforms
+      tag: [ '${CI_COMMIT_TAG%%.*}', '${CI_COMMIT_TAG%.*}', '${CI_COMMIT_TAG}', 'latest' ]
+      logins: *publish_logins
+    when: *when-release
+
+  publish-alpine:
+    depends_on:
+      - compile
+    image: *buildx_plugin
+    settings:
+      repo: *publish_repos
+      dockerfile: docker/Dockerfile.alpine.multiarch.rootless
+      platforms: *publish_platforms
+      tag: [ '${CI_COMMIT_TAG%%.*}-alpine', '${CI_COMMIT_TAG%.*}-alpine', '${CI_COMMIT_TAG}-alpine', 'latest-alpine' ]
+      logins: *publish_logins
+    when: *when-release
+
