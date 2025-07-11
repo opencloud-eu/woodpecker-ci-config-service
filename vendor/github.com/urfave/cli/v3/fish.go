@@ -30,105 +30,85 @@ func (cmd *Command) writeFishCompletionTemplate(w io.Writer) error {
 	if err != nil {
 		return err
 	}
-	allCommands := []string{}
 
 	// Add global flags
-	completions := cmd.prepareFishFlags(cmd.VisibleFlags(), allCommands)
-
-	// Add help flag
-	if !cmd.HideHelp {
-		completions = append(
-			completions,
-			cmd.prepareFishFlags([]Flag{HelpFlag}, allCommands)...,
-		)
-	}
-
-	// Add version flag
-	if !cmd.HideVersion {
-		completions = append(
-			completions,
-			cmd.prepareFishFlags([]Flag{VersionFlag}, allCommands)...,
-		)
-	}
+	completions := prepareFishFlags(cmd.Name, cmd)
 
 	// Add commands and their flags
 	completions = append(
 		completions,
-		cmd.prepareFishCommands(cmd.VisibleCommands(), &allCommands, []string{})...,
+		prepareFishCommands(cmd.Name, cmd)...,
 	)
+
+	toplevelCommandNames := []string{}
+	for _, child := range cmd.Commands {
+		toplevelCommandNames = append(toplevelCommandNames, child.Names()...)
+	}
 
 	return t.ExecuteTemplate(w, name, &fishCommandCompletionTemplate{
 		Command:     cmd,
 		Completions: completions,
-		AllCommands: allCommands,
+		AllCommands: toplevelCommandNames,
 	})
 }
 
-func (cmd *Command) prepareFishCommands(commands []*Command, allCommands *[]string, previousCommands []string) []string {
+func prepareFishCommands(binary string, parent *Command) []string {
+	commands := parent.Commands
 	completions := []string{}
 	for _, command := range commands {
-		var completion strings.Builder
-		completion.WriteString(fmt.Sprintf(
-			"complete -r -c %s -n '%s' -a '%s'",
-			cmd.Name,
-			cmd.fishSubcommandHelper(previousCommands),
-			strings.Join(command.Names(), " "),
-		))
-
-		if command.Usage != "" {
-			completion.WriteString(fmt.Sprintf(" -d '%s'",
-				escapeSingleQuotes(command.Usage)))
-		}
-
-		if !command.HideHelp {
-			completions = append(
-				completions,
-				cmd.prepareFishFlags([]Flag{HelpFlag}, command.Names())...,
+		if !command.Hidden {
+			var completion strings.Builder
+			fmt.Fprintf(&completion,
+				"complete -x -c %s -n '%s' -a '%s'",
+				binary,
+				fishSubcommandHelper(binary, parent, commands),
+				command.Name,
 			)
-		}
 
-		*allCommands = append(*allCommands, command.Names()...)
-		completions = append(completions, completion.String())
+			if command.Usage != "" {
+				fmt.Fprintf(&completion,
+					" -d '%s'",
+					escapeSingleQuotes(command.Usage))
+			}
+			completions = append(completions, completion.String())
+		}
 		completions = append(
 			completions,
-			cmd.prepareFishFlags(command.VisibleFlags(), command.Names())...,
+			prepareFishFlags(binary, command)...,
 		)
 
 		// recursively iterate subcommands
-		if len(command.Commands) > 0 {
-			completions = append(
-				completions,
-				cmd.prepareFishCommands(
-					command.Commands, allCommands, command.Names(),
-				)...,
-			)
-		}
+		completions = append(
+			completions,
+			prepareFishCommands(binary, command)...,
+		)
 	}
 
 	return completions
 }
 
-func (cmd *Command) prepareFishFlags(flags []Flag, previousCommands []string) []string {
+func prepareFishFlags(binary string, owner *Command) []string {
+	flags := owner.VisibleFlags()
 	completions := []string{}
 	for _, f := range flags {
 		completion := &strings.Builder{}
-		completion.WriteString(fmt.Sprintf(
+		fmt.Fprintf(completion,
 			"complete -c %s -n '%s'",
-			cmd.Name,
-			cmd.fishSubcommandHelper(previousCommands),
-		))
+			binary,
+			fishFlagHelper(binary, owner),
+		)
 
 		fishAddFileFlag(f, completion)
 
 		for idx, opt := range f.Names() {
 			if idx == 0 {
-				completion.WriteString(fmt.Sprintf(
+				fmt.Fprintf(completion,
 					" -l %s", strings.TrimSpace(opt),
-				))
+				)
 			} else {
-				completion.WriteString(fmt.Sprintf(
+				fmt.Fprintf(completion,
 					" -s %s", strings.TrimSpace(opt),
-				))
+				)
 			}
 		}
 
@@ -138,8 +118,9 @@ func (cmd *Command) prepareFishFlags(flags []Flag, previousCommands []string) []
 			}
 
 			if flag.GetUsage() != "" {
-				completion.WriteString(fmt.Sprintf(" -d '%s'",
-					escapeSingleQuotes(flag.GetUsage())))
+				fmt.Fprintf(completion,
+					" -d '%s'",
+					escapeSingleQuotes(flag.GetUsage()))
 			}
 		}
 
@@ -163,17 +144,46 @@ func fishAddFileFlag(flag Flag, completion *strings.Builder) {
 	completion.WriteString(" -f")
 }
 
-func (cmd *Command) fishSubcommandHelper(allCommands []string) string {
-	fishHelper := fmt.Sprintf("__fish_%s_no_subcommand", cmd.Name)
-	if len(allCommands) > 0 {
+func fishSubcommandHelper(binary string, command *Command, siblings []*Command) string {
+	fishHelper := fmt.Sprintf("__fish_%s_no_subcommand", binary)
+	if len(command.Lineage()) > 1 {
+		var siblingNames []string
+		for _, sibling := range siblings {
+			siblingNames = append(siblingNames, sibling.Names()...)
+		}
+		ancestry := commandAncestry(command)
 		fishHelper = fmt.Sprintf(
-			"__fish_seen_subcommand_from %s",
-			strings.Join(allCommands, " "),
+			"%s; and not __fish_seen_subcommand_from %s",
+			ancestry,
+			strings.Join(siblingNames, " "),
 		)
 	}
 	return fishHelper
 }
 
+func fishFlagHelper(binary string, command *Command) string {
+	fishHelper := fmt.Sprintf("__fish_%s_no_subcommand", binary)
+	if len(command.Lineage()) > 1 {
+		fishHelper = commandAncestry(command)
+	}
+	return fishHelper
+}
+
+func commandAncestry(command *Command) string {
+	var ancestry []string
+	ancestors := command.Lineage()
+	for i := len(ancestors) - 2; i >= 0; i-- {
+		ancestry = append(
+			ancestry,
+			fmt.Sprintf(
+				"__fish_seen_subcommand_from %s",
+				strings.Join(ancestors[i].Names(), " "),
+			),
+		)
+	}
+	return strings.Join(ancestry, "; and ")
+}
+
 func escapeSingleQuotes(input string) string {
-	return strings.Replace(input, `'`, `\'`, -1)
+	return strings.ReplaceAll(input, `'`, `\'`)
 }

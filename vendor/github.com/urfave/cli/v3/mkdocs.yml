@@ -15,9 +15,36 @@ nav:
       - Code of Conduct: CODE_OF_CONDUCT.md
       - Releasing: RELEASING.md
       - Security: SECURITY.md
+      - Migrate v2 to v3: migrate-v2-to-v3.md
       - Migrate v1 to v2: migrate-v1-to-v2.md
+  - v3 Manual:
+      - Getting Started: v3/getting-started.md
+      - Migrating From Older Releases: v3/migrating-from-older-releases.md
+      - Examples:
+          - Greet: v3/examples/greet.md
+          - Flags: 
+              - Basics: v3/examples/flags/basics.md
+              - Value Sources: v3/examples/flags/value-sources.md
+              - Short Options: v3/examples/flags/short-options.md
+              - Advanced: v3/examples/flags/advanced.md
+          - Arguments: 
+              - Basics: v3/examples/arguments/basics.md
+              - Advanced: v3/examples/arguments/advanced.md
+          - Subcommands: 
+              - Basics: v3/examples/subcommands/basics.md
+              - Categories: v3/examples/subcommands/categories.md
+          - Completions:
+              - Shell Completions: v3/examples/completions/shell-completions.md
+              - Customizations: v3/examples/completions/customizations.md
+          - Help Text:
+              - Generated Help Text: v3/examples/help/generated-help-text.md
+              - Suggestions: v3/examples/help/suggestions.md
+          - Error Handling:
+              - Exit Codes: v3/examples/exit-codes.md          
+          - Full API Example: v3/examples/full-api-example.md
   - v2 Manual:
       - Getting Started: v2/getting-started.md
+      - Migrating to v3: v2/migrating-to-v3.md
       - Migrating From Older Releases: v2/migrating-from-older-releases.md
       - Examples:
           - Greet: v2/examples/greet.md
@@ -69,10 +96,15 @@ theme:
     - navigation.sections
     - navigation.tabs
     - navigation.tabs.sticky
+
 plugins:
   - git-revision-date-localized
   - search
+  - redirects:
+      redirect_maps:
+        'v3/examples/bash-completions.md': 'v3/examples/completions/shell-completions.md'
   - tags
+
 # NOTE: this is the recommended configuration from
 # https://squidfunk.github.io/mkdocs-material/setup/extensions/#recommended-configuration
 markdown_extensions:

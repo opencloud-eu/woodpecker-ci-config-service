@@ -6,9 +6,24 @@ type extFlag struct {
 	f *flag.Flag
 }
 
-func (e *extFlag) Apply(fs *flag.FlagSet) error {
-	fs.Var(e.f.Value, e.f.Name, e.f.Usage)
+func (e *extFlag) PreParse() error {
+	if e.f.DefValue != "" {
+		return e.Set("", e.f.DefValue)
+	}
+
 	return nil
+}
+
+func (e *extFlag) PostParse() error {
+	return nil
+}
+
+func (e *extFlag) Set(_ string, val string) error {
+	return e.f.Value.Set(val)
+}
+
+func (e *extFlag) Get() any {
+	return e.f.Value.(flag.Getter).Get()
 }
 
 func (e *extFlag) Names() []string {

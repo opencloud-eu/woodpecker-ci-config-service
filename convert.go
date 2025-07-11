@@ -104,7 +104,7 @@ func (p StarlarkConverter) Convert(f File, env Environment) ([]File, error) {
 		starlarkstruct.FromStringDict(
 			starlark.String("context"),
 			starlark.StringDict{
-				//IMPORTANT: just a hint, never add any env.Netrc values to the context, this contains sensitive information!!!
+				// IMPORTANT: just a hint, never add any env.Netrc values to the context, this contains sensitive information!!!
 				"repo": starlarkstruct.FromStringDict(starlark.String("repo"), starlark.StringDict{
 					"owner":    starlark.String(env.Repo.Owner),
 					"name":     starlark.String(env.Repo.Name),
