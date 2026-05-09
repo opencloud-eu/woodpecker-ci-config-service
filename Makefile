@@ -23,3 +23,17 @@ add-license:
 .PHONY: test
 test:
 	go test -race -cover -coverprofile coverage.out -timeout 60s .
+
+DOCKER_IMAGE ?= opencloudeu/wccs
+DOCKER_TAG ?= dev
+DOCKER_PLATFORMS ?= linux/amd64,linux/arm64
+DOCKER_OUTPUT ?=
+
+.PHONY: docker-buildx
+docker-buildx:
+	docker buildx build \
+		--platform $(DOCKER_PLATFORMS) \
+		--file Dockerfile \
+		--tag $(DOCKER_IMAGE):$(DOCKER_TAG) \
+		$(DOCKER_OUTPUT) \
+		.

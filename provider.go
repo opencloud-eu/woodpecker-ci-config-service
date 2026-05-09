@@ -76,7 +76,7 @@ type ForgeProvider struct {
 
 // NewForgeProvider returns a new ForgeProvider.
 func NewForgeProvider(logger *slog.Logger) (ForgeProvider, error) {
-	forgeTypeGithub, err := github.New(github.Opts{
+	forgeTypeGithub, err := github.New(0, github.Opts{
 		URL:      "https://github.com",
 		MergeRef: true,
 	})

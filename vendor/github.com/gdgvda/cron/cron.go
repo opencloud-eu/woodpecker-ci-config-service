@@ -5,34 +5,38 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"runtime"
 	"sync"
 	"time"
 )
+
+type insertion struct {
+	entry *Entry
+	done  chan struct{}
+}
+
+type removal struct {
+	id   ID
+	done chan struct{}
+}
 
 // Cron keeps track of any number of entries, invoking the associated func as
 // specified by the schedule. It may be started, stopped, and the entries may
 // be inspected while running.
 type Cron struct {
-	entries   entryHeap
-	chain     Chain
-	stop      chan struct{}
-	add       chan *Entry
-	remove    chan ID
-	snapshot  chan chan []Entry
-	running   bool
-	logger    *slog.Logger
-	runningMu sync.Mutex
-	location  *time.Location
-	parser    Parser
-	next      ID
-	jobWaiter sync.WaitGroup
-}
-
-// Schedule describes a job's duty cycle.
-type Schedule interface {
-	// Next returns the next activation time, later than the given time.
-	// Next is invoked initially, and then each time the job is run.
-	Next(time.Time) time.Time
+	entries          entryHeap
+	chain            Chain
+	stop             chan struct{}
+	add              chan insertion
+	remove           chan removal
+	snapshot         chan chan []Entry
+	running          bool
+	logger           *slog.Logger
+	runningMu        sync.Mutex
+	next             ID
+	jobWaiter        sync.WaitGroup
+	clock            Clock
+	onCycleCompleted []func()
 }
 
 // ID identifies an entry within a Cron instance
@@ -59,52 +63,25 @@ type Entry struct {
 }
 
 // New returns a new Cron job runner, modified by the given options.
-//
-// Available Settings
-//
-//	Time Zone
-//	  Description: The time zone in which schedules are interpreted
-//	  Default:     time.Local
-//
-//	Parser
-//	  Description: Parser converts cron spec strings into cron.Schedules.
-//	  Default:     Accepts this spec: https://en.wikipedia.org/wiki/Cron
-//
-//	Chain
-//	  Description: Wrap submitted jobs to customize behavior.
-//	  Default:     A chain that recovers panics and logs them to stderr.
-//
-// See "cron.With*" to modify the default behavior.
 func New(opts ...Option) *Cron {
 	c := &Cron{
-		entries:   entryHeap{},
-		chain:     NewChain(),
-		add:       make(chan *Entry),
-		stop:      make(chan struct{}),
-		snapshot:  make(chan chan []Entry),
-		remove:    make(chan ID),
-		running:   false,
-		runningMu: sync.Mutex{},
-		logger:    slog.Default(),
-		location:  time.Local,
-		parser:    standardParser,
-		next:      1,
+		entries:          entryHeap{},
+		chain:            NewChain(),
+		add:              make(chan insertion),
+		stop:             make(chan struct{}),
+		snapshot:         make(chan chan []Entry),
+		remove:           make(chan removal),
+		running:          false,
+		runningMu:        sync.Mutex{},
+		logger:           slog.Default(),
+		next:             1,
+		clock:            NewDefaultClock(time.Local, DefaultNopTimer),
+		onCycleCompleted: []func(){},
 	}
 	for _, opt := range opts {
 		opt(c)
 	}
 	return c
-}
-
-// Add adds a job to the Cron to be run on the given schedule.
-// The spec is parsed using the time zone of this Cron instance as the default.
-// An opaque ID is returned that can be used to later remove it.
-func (c *Cron) Add(spec string, cmd func()) (ID, error) {
-	schedule, err := c.parser.Parse(spec)
-	if err != nil {
-		return 0, err
-	}
-	return c.Schedule(schedule, cmd)
 }
 
 // Schedule adds a job to the Cron to be run on the given schedule.
@@ -127,7 +104,9 @@ func (c *Cron) Schedule(schedule Schedule, cmd func()) (ID, error) {
 	if !c.running {
 		c.entries = append(c.entries, entry)
 	} else {
-		c.add <- entry
+		done := make(chan struct{})
+		c.add <- insertion{entry: entry, done: done}
+		<-done
 	}
 	return entry.ID, nil
 }
@@ -142,11 +121,6 @@ func (c *Cron) Entries() []Entry {
 		return <-replyChan
 	}
 	return c.entrySnapshot()
-}
-
-// Location gets the time zone location
-func (c *Cron) Location() *time.Location {
-	return c.location
 }
 
 // Entry returns a snapshot of the given entry, or nil if it couldn't be found.
@@ -164,7 +138,9 @@ func (c *Cron) Remove(id ID) {
 	c.runningMu.Lock()
 	defer c.runningMu.Unlock()
 	if c.running {
-		c.remove <- id
+		done := make(chan struct{})
+		c.remove <- removal{id: id, done: done}
+		<-done
 	} else {
 		c.removeEntry(id)
 	}
@@ -199,7 +175,7 @@ func (c *Cron) run() {
 	c.logger.Info("starting scheduler", "event", "start")
 
 	// Figure out the next activation times for each entry.
-	now := c.now()
+	now := c.clock.Now()
 	for _, entry := range c.entries {
 		entry.Next = entry.Schedule.Next(now)
 		entry.logger.Debug("next execution time computed", "event", "next", "now", now, "next", entry.Next)
@@ -207,20 +183,22 @@ func (c *Cron) run() {
 	heap.Init(&c.entries)
 
 	for {
-		var timer *time.Timer
+		var timer <-chan struct{}
+		var stop func()
 		if len(c.entries) == 0 || c.entries[0].Next.IsZero() {
 			// If there are no entries yet, just sleep - it still handles new entries
 			// and stop requests.
-			timer = time.NewTimer(100000 * time.Hour)
+			timer, stop = c.clock.NopTimer()
 		} else {
-			timer = time.NewTimer(c.entries[0].Next.Sub(now))
+			timer, stop = c.clock.Timer(c.entries[0].Next)
 		}
 
 		for {
 			select {
-			case now = <-timer.C:
-				now = now.In(c.location)
+			case <-timer:
+				now = c.clock.Now()
 				c.logger.Debug("scheduler woke up", "event", "wake", "now", now)
+				cycleGroup := &sync.WaitGroup{}
 
 				// Run every entry whose next time was less than now
 				for {
@@ -228,33 +206,41 @@ func (c *Cron) run() {
 						break
 					}
 					e := heap.Pop(&c.entries).(*Entry)
-					c.startJob(e.job)
+					c.startJob(e, cycleGroup)
 					e.Prev = e.Next
 					e.Next = e.Schedule.Next(now)
 					heap.Push(&c.entries, e)
 					e.logger.Info("starting job", "event", "run", "now", now, "next", e.Next)
 				}
+				go func() {
+					cycleGroup.Wait()
+					for _, f := range c.onCycleCompleted {
+						f()
+					}
+				}()
 
-			case newEntry := <-c.add:
-				timer.Stop()
-				now = c.now()
-				newEntry.Next = newEntry.Schedule.Next(now)
-				heap.Push(&c.entries, newEntry)
-				newEntry.logger.Info("added new entry", "event", "add", "now", now, "next", newEntry.Next)
+			case insertion := <-c.add:
+				stop()
+				now = c.clock.Now()
+				entry := insertion.entry
+				entry.Next = entry.Schedule.Next(now)
+				heap.Push(&c.entries, entry)
+				entry.logger.Info("added new entry", "event", "add", "now", now, "next", entry.Next)
+				insertion.done <- struct{}{}
 
 			case replyChan := <-c.snapshot:
 				replyChan <- c.entrySnapshot()
 				continue
 
 			case <-c.stop:
-				timer.Stop()
+				stop()
 				c.logger.Info("stopping scheduler", "event", "stop")
 				return
 
-			case id := <-c.remove:
-				timer.Stop()
-				now = c.now()
-				c.removeEntry(id)
+			case removal := <-c.remove:
+				stop()
+				c.removeEntry(removal.id)
+				removal.done <- struct{}{}
 			}
 
 			break
@@ -263,17 +249,26 @@ func (c *Cron) run() {
 }
 
 // startJob runs the given job in a new goroutine.
-func (c *Cron) startJob(job func()) {
+func (c *Cron) startJob(entry *Entry, cycleGroup *sync.WaitGroup) {
 	c.jobWaiter.Add(1)
+	cycleGroup.Add(1)
 	go func() {
-		defer c.jobWaiter.Done()
-		job()
+		defer func() {
+			if r := recover(); r != nil {
+				const size = 64 << 10
+				buf := make([]byte, size)
+				buf = buf[:runtime.Stack(buf, false)]
+				err, ok := r.(error)
+				if !ok {
+					err = fmt.Errorf("%v", r)
+				}
+				entry.logger.Error(err.Error(), "event", "panic", "stack", "...\n"+string(buf))
+			}
+			cycleGroup.Done()
+			c.jobWaiter.Done()
+		}()
+		entry.job()
 	}()
-}
-
-// now returns current time in c location
-func (c *Cron) now() time.Time {
-	return time.Now().In(c.location)
 }
 
 // Stop stops the cron scheduler if it is running; otherwise it does nothing.

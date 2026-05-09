@@ -16,6 +16,7 @@ package services
 
 import (
 	"crypto"
+	"strings"
 	"time"
 
 	"github.com/jellydator/ttlcache/v3"
@@ -27,10 +28,9 @@ import (
 	"go.woodpecker-ci.org/woodpecker/v3/server/services/environment"
 	"go.woodpecker-ci.org/woodpecker/v3/server/services/registry"
 	"go.woodpecker-ci.org/woodpecker/v3/server/services/secret"
+	"go.woodpecker-ci.org/woodpecker/v3/server/services/utils"
 	"go.woodpecker-ci.org/woodpecker/v3/server/store"
 )
-
-//go:generate mockery --name Manager --output mocks --case underscore --note "+build test"
 
 const forgeCacheTTL = 10 * time.Minute
 
@@ -59,6 +59,7 @@ type manager struct {
 	environment         environment.Service
 	forgeCache          *ttlcache.Cache[int64, forge.Forge]
 	setupForge          SetupForge
+	client              *utils.Client
 }
 
 func NewManager(c *cli.Command, store store.Store, setupForge SetupForge) (Manager, error) {
@@ -72,7 +73,12 @@ func NewManager(c *cli.Command, store store.Store, setupForge SetupForge) (Manag
 		return nil, err
 	}
 
-	configService, err := setupConfigService(c, signaturePrivateKey)
+	client, err := utils.NewHTTPClient(signaturePrivateKey, c.String("extensions-allowed-hosts"))
+	if err != nil {
+		return nil, err
+	}
+
+	configService, err := setupConfigService(c, client)
 	if err != nil {
 		return nil, err
 	}
@@ -81,12 +87,13 @@ func NewManager(c *cli.Command, store store.Store, setupForge SetupForge) (Manag
 		signaturePrivateKey: signaturePrivateKey,
 		signaturePublicKey:  signaturePublicKey,
 		store:               store,
-		secret:              setupSecretService(store),
-		registry:            setupRegistryService(store, c.String("docker-config")),
+		secret:              setupSecretService(store, c.String("secret-extension-endpoint"), client, c.Bool("secret-extension-netrc")),
+		registry:            setupRegistryService(store, c.String("docker-config"), c.String("registry-extension-endpoint"), c.Bool("registry-extension-netrc"), client),
 		config:              configService,
 		environment:         environment.Parse(c.StringSlice("environment")),
 		forgeCache:          ttlcache.New(ttlcache.WithDisableTouchOnHit[int64, forge.Forge]()),
 		setupForge:          setupForge,
+		client:              client,
 	}, nil
 }
 
@@ -94,7 +101,11 @@ func (m *manager) SignaturePublicKey() crypto.PublicKey {
 	return m.signaturePublicKey
 }
 
-func (m *manager) SecretServiceFromRepo(_ *model.Repo) secret.Service {
+func (m *manager) SecretServiceFromRepo(repo *model.Repo) secret.Service {
+	if repo.SecretExtensionEndpoint != "" {
+		return secret.NewCombined(m.secret, secret.NewHTTP(strings.TrimRight(repo.SecretExtensionEndpoint, "/"), m.client, repo.SecretExtensionNetrc))
+	}
+
 	return m.SecretService()
 }
 
@@ -102,7 +113,10 @@ func (m *manager) SecretService() secret.Service {
 	return m.secret
 }
 
-func (m *manager) RegistryServiceFromRepo(_ *model.Repo) registry.Service {
+func (m *manager) RegistryServiceFromRepo(repo *model.Repo) registry.Service {
+	if repo.RegistryExtensionEndpoint != "" {
+		return registry.NewWithExtension(m.registry, registry.NewHTTP(strings.TrimRight(repo.RegistryExtensionEndpoint, "/"), m.client, repo.RegistryExtensionNetrc))
+	}
 	return m.RegistryService()
 }
 
@@ -110,8 +124,14 @@ func (m *manager) RegistryService() registry.Service {
 	return m.registry
 }
 
-func (m *manager) ConfigServiceFromRepo(_ *model.Repo) config.Service {
-	// TODO: decide based on repo property which config service to use
+func (m *manager) ConfigServiceFromRepo(repo *model.Repo) config.Service {
+	if repo.ConfigExtensionEndpoint != "" {
+		if repo.ConfigExtensionExclusive {
+			return config.NewHTTP(strings.TrimRight(repo.ConfigExtensionEndpoint, "/"), m.client, repo.ConfigExtensionNetrc)
+		}
+		return config.NewCombined(m.config, config.NewHTTP(strings.TrimRight(repo.ConfigExtensionEndpoint, "/"), m.client, repo.ConfigExtensionNetrc))
+	}
+
 	return m.config
 }
 

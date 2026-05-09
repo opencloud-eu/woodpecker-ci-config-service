@@ -19,9 +19,7 @@ package model
 const (
 	FailureIgnore = "ignore"
 	FailureFail   = "fail"
-	//nolint:godot
-	// TODO: Not implemented yet.
-	// FailureCancel = "cancel"
+	FailureCancel = "cancel"
 )
 
 // Step represents a process in the pipeline.
@@ -39,7 +37,7 @@ type Step struct {
 	Started    int64       `json:"started,omitempty"    xorm:"started"`
 	Finished   int64       `json:"finished,omitempty"   xorm:"finished"`
 	Type       StepType    `json:"type,omitempty"       xorm:"type"`
-} //	@name Step
+} //	@name	Step
 
 // TableName return database table name for xorm.
 func (Step) TableName() string {
@@ -53,11 +51,11 @@ func (p *Step) Running() bool {
 
 // Failing returns true if the process state is failed, killed or error.
 func (p *Step) Failing() bool {
-	return p.Failure == FailureFail && (p.State == StatusError || p.State == StatusKilled || p.State == StatusFailure)
+	return p.State == StatusError || p.State == StatusKilled || p.State == StatusFailure
 }
 
 // StepType identifies the type of step.
-type StepType string //	@name StepType
+type StepType string //	@name	StepType
 
 const (
 	StepTypeClone    StepType = "clone"
