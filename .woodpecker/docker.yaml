@@ -17,8 +17,18 @@ variables:
 when:
   - event: [tag]
     branch: ${CI_REPO_DEFAULT_BRANCH}
+  - event: pull_request
 
 steps:
+  dry-run:
+    image: *buildx_plugin
+    settings:
+      dry-run: true
+      dockerfile: Dockerfile
+      platforms: *publish_platforms
+    when:
+      event: pull_request
+
   publish:
     image: *buildx_plugin
     settings:
