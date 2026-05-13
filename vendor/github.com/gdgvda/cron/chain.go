@@ -1,9 +1,7 @@
 package cron
 
 import (
-	"fmt"
 	"log/slog"
-	"runtime"
 	"sync"
 	"time"
 )
@@ -36,27 +34,6 @@ func (c Chain) Then(job func()) func() {
 		job = c.wrappers[len(c.wrappers)-i-1](job)
 	}
 	return job
-}
-
-// Recover panics in wrapped jobs and log them with the provided logger.
-func Recover(logger *slog.Logger) JobWrapper {
-	return func(job func()) func() {
-		return func() {
-			defer func() {
-				if r := recover(); r != nil {
-					const size = 64 << 10
-					buf := make([]byte, size)
-					buf = buf[:runtime.Stack(buf, false)]
-					err, ok := r.(error)
-					if !ok {
-						err = fmt.Errorf("%v", r)
-					}
-					logger.Error(err.Error(), "event", "panic", "stack", "...\n"+string(buf))
-				}
-			}()
-			job()
-		}
-	}
 }
 
 // DelayIfStillRunning serializes jobs, delaying subsequent runs until the

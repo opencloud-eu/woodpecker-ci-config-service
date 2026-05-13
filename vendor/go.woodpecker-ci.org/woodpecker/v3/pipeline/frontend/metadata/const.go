@@ -14,23 +14,36 @@
 
 package metadata
 
+type Event string
+
 // Event types corresponding to forge hooks.
 const (
-	EventPush       = "push"
-	EventPull       = "pull_request"
-	EventPullClosed = "pull_request_closed"
-	EventTag        = "tag"
-	EventRelease    = "release"
-	EventDeploy     = "deployment"
-	EventCron       = "cron"
-	EventManual     = "manual"
+	EventPush         Event = "push"
+	EventPull         Event = "pull_request"
+	EventPullClosed   Event = "pull_request_closed"
+	EventPullMetadata Event = "pull_request_metadata"
+	EventTag          Event = "tag"
+	EventRelease      Event = "release"
+	EventDeploy       Event = "deployment"
+	EventCron         Event = "cron"
+	EventManual       Event = "manual"
 )
+
+func (event Event) IsPull() bool {
+	switch event {
+	case EventPull,
+		EventPullClosed,
+		EventPullMetadata:
+		return true
+	}
+	return false
+}
+
+type Failure string
 
 // Different ways to handle failure states.
 const (
-	FailureIgnore = "ignore"
-	FailureFail   = "fail"
-	//nolint:godot
-	// TODO: Not implemented yet.
-	// FailureCancel = "cancel"
+	FailureIgnore Failure = "ignore"
+	FailureFail   Failure = "fail"
+	FailureCancel Failure = "cancel"
 )

@@ -14,13 +14,15 @@
 
 package registry
 
-import "go.woodpecker-ci.org/woodpecker/v3/server/model"
+import (
+	"context"
 
-//go:generate mockery --name Service --output mocks --case underscore
+	"go.woodpecker-ci.org/woodpecker/v3/server/model"
+)
 
 // Service defines a service for managing registries.
 type Service interface {
-	RegistryListPipeline(*model.Repo, *model.Pipeline) ([]*model.Registry, error)
+	RegistryListPipeline(context.Context, *model.Repo, *model.Pipeline, *model.Netrc) ([]*model.Registry, error)
 	// Repository registries
 	RegistryFind(*model.Repo, string) (*model.Registry, error)
 	RegistryList(*model.Repo, *model.ListOptions) ([]*model.Registry, error)

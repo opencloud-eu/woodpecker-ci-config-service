@@ -14,8 +14,6 @@
 
 package store
 
-//go:generate mockery --name Store --output mocks --case underscore --note "+build test"
-
 import (
 	"context"
 
@@ -28,10 +26,10 @@ type Store interface {
 	// Users
 	// GetUser gets a user by unique ID.
 	GetUser(int64) (*model.User, error)
-	// GetUserRemoteID gets a user by remote ID with fallback to login name.
-	GetUserRemoteID(model.ForgeRemoteID, string) (*model.User, error)
-	// GetUserLogin gets a user by unique Login name.
-	GetUserLogin(string) (*model.User, error)
+	// GetUserByRemoteID gets a user by remote ID.
+	GetUserByRemoteID(int64, model.ForgeRemoteID) (*model.User, error)
+	// GetUserByLogin gets a user by its login name.
+	GetUserByLogin(int64, string) (*model.User, error)
 	// GetUserList gets a list of all users in the system.
 	GetUserList(p *model.ListOptions) ([]*model.User, error)
 	// GetUserCount gets a count of all users in the system.
@@ -46,10 +44,10 @@ type Store interface {
 	// Repos
 	// GetRepo gets a repo by unique ID.
 	GetRepo(int64) (*model.Repo, error)
-	// GetRepoForgeID gets a repo by its forge ID.
-	GetRepoForgeID(model.ForgeRemoteID) (*model.Repo, error)
-	// GetRepoNameFallback gets the repo by its forge ID and if this doesn't exist by its full name.
-	GetRepoNameFallback(remoteID model.ForgeRemoteID, fullName string) (*model.Repo, error)
+	// GetRepoForgeID gets a repo by its forge ID and forge remote ID.
+	GetRepoForgeID(int64, model.ForgeRemoteID) (*model.Repo, error)
+	// GetRepoNameFallback gets the repo by its forge ID and forge remote ID, and if this doesn't exist by its full name.
+	GetRepoNameFallback(forgeID int64, remoteID model.ForgeRemoteID, fullName string) (*model.Repo, error)
 	// GetRepoName gets a repo by its full name.
 	GetRepoName(string) (*model.Repo, error)
 	// GetRepoCount gets a count of all repositories in the system.
@@ -73,9 +71,9 @@ type Store interface {
 	// GetPipelineNumber gets a pipeline by number.
 	GetPipelineNumber(*model.Repo, int64) (*model.Pipeline, error)
 	// GetPipelineBadge gets the last relevant pipeline for the badge.
-	GetPipelineBadge(*model.Repo, string) (*model.Pipeline, error)
-	// GetPipelineLast gets the last pipeline for the branch.
-	GetPipelineLast(*model.Repo, string) (*model.Pipeline, error)
+	GetPipelineBadge(*model.Repo, string, []model.WebhookEvent) (*model.Pipeline, error)
+	// GetPipelineLastByBranch gets the last pipeline for the branch.
+	GetPipelineLastByBranch(*model.Repo, string) (*model.Pipeline, error)
 	// GetPipelineLastBefore gets the last pipeline before pipeline number N.
 	GetPipelineLastBefore(*model.Repo, string, int64) (*model.Pipeline, error)
 	// GetPipelineList gets a list of pipelines for the repository
@@ -99,13 +97,14 @@ type Store interface {
 	UserFeed(*model.User) ([]*model.Feed, error)
 
 	// Repositories
-	RepoList(user *model.User, owned, active bool) ([]*model.Repo, error)
+	RepoList(user *model.User, owned, active bool, filter *model.RepoFilter) ([]*model.Repo, error)
 	RepoListLatest(*model.User) ([]*model.Feed, error)
 	RepoListAll(active bool, p *model.ListOptions) ([]*model.Repo, error)
 
 	// Permissions
 	PermFind(user *model.User, repo *model.Repo) (*model.Perm, error)
 	PermUpsert(perm *model.Perm) error
+	PermPrune(userID int64, keepRepoIDs []int64) error
 
 	// Configs
 	ConfigsForPipeline(pipelineID int64) ([]*model.Config, error)
@@ -137,11 +136,9 @@ type Store interface {
 	GlobalRegistryList(*model.ListOptions) ([]*model.Registry, error)
 
 	// Steps
-	StepLoad(int64) (*model.Step, error)
-	StepFind(*model.Pipeline, int) (*model.Step, error)
-	StepByUUID(string) (*model.Step, error)
-	StepChild(*model.Pipeline, int, string) (*model.Step, error)
-	StepList(*model.Pipeline) ([]*model.Step, error)
+	StepLoad(pipelineID, stepID int64) (*model.Step, error)
+	StepByUUID(uuid string) (*model.Step, error)
+	StepList(pipelineID int64) ([]*model.Step, error)
 	StepUpdate(*model.Step) error
 	StepListFromWorkflowFind(*model.Workflow) ([]*model.Step, error)
 
@@ -149,6 +146,7 @@ type Store interface {
 	LogFind(*model.Step) ([]*model.LogEntry, error)
 	LogAppend(*model.Step, []*model.LogEntry) error
 	LogDelete(*model.Step) error
+	StepFinished(*model.Step)
 
 	// Tasks
 	// TaskList TODO: paginate & opt filter

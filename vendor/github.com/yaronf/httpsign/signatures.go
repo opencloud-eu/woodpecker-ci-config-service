@@ -3,12 +3,24 @@ package httpsign
 import (
 	"errors"
 	"fmt"
-	"github.com/dunglas/httpsfv"
 	"io"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/dunglas/httpsfv"
 )
+
+// reservedSigParams lists the RFC 9421 standard signature parameter names.
+// Custom parameters must not use these names.
+var reservedSigParams = map[string]bool{
+	"created": true,
+	"expires": true,
+	"nonce":   true,
+	"alg":     true,
+	"tag":     true,
+	"keyid":   true,
+}
 
 func signMessage(config SignConfig, signatureName string, signer Signer, parsedMessage, parsedAssocMessage *parsedMessage,
 	fields Fields) (signatureInput, signature, signatureBase string, err error) {
@@ -31,6 +43,13 @@ func signMessage(config SignConfig, signatureName string, signer Signer, parsedM
 		return "", "", "", err
 	}
 	return signatureInput, signature, signatureBase, nil
+}
+
+func resolvedScheme(schemeFromRequest func(*http.Request) string, req *http.Request) string {
+	if req == nil || schemeFromRequest == nil {
+		return ""
+	}
+	return schemeFromRequest(req)
 }
 
 func applyFieldConstraints(fields Fields) error {
@@ -271,6 +290,12 @@ func generateSigParams(config *SignConfig, alg string, foreignSigner interface{}
 	if config.expires != 0 {
 		p.Add("expires", config.expires)
 	}
+	if config.expiresAfter != 0 {
+		if config.expires != 0 {
+			return "", fmt.Errorf("cannot use both expires and expiresAfter")
+		}
+		p.Add("expires", config.expiresAfter+createdTime)
+	}
 	if config.nonce != "" {
 		qNonce, err := quotedString(config.nonce)
 		if err != nil {
@@ -297,7 +322,31 @@ func generateSigParams(config *SignConfig, alg string, foreignSigner interface{}
 		}
 		p.Add("keyid", *config.keyID)
 	}
-	return fields.asSignatureInput(p)
+	seen := map[string]bool{}
+	for _, cp := range config.customParams {
+		if reservedSigParams[cp.name] {
+			return "", fmt.Errorf("custom param name %q conflicts with reserved parameter", cp.name)
+		}
+		if seen[cp.name] {
+			return "", fmt.Errorf("duplicate custom param name %q", cp.name)
+		}
+		seen[cp.name] = true
+		switch v := cp.value.(type) {
+		case int64:
+			p.Add(cp.name, v)
+		case string:
+			p.Add(cp.name, v)
+		case bool:
+			p.Add(cp.name, v)
+		default:
+			return "", fmt.Errorf("custom param %q: value must be int64, string, or bool", cp.name)
+		}
+	}
+	s, err := fields.asSignatureInput(p)
+	if err != nil && errors.Is(err, httpsfv.ErrInvalidKeyFormat) {
+		return "", fmt.Errorf("invalid custom signature parameter name (RFC 8941 key syntax): %w", err)
+	}
+	return s, err
 }
 
 // SignRequest signs an HTTP request. Returns the Signature-Input and the Signature header values.
@@ -316,7 +365,7 @@ func signRequestDebug(signatureName string, signer Signer, req *http.Request) (s
 		return "", "", "", fmt.Errorf("empty signature name")
 	}
 	withTrailers := signer.fields.hasTrailerFields(false)
-	parsedMessage, err := parseRequest(req, withTrailers)
+	parsedMessage, err := parseRequest(req, withTrailers, signer.config.maxBodySize, resolvedScheme(signer.config.schemeFromRequest, req))
 	if err != nil {
 		return "", "", "", err
 	}
@@ -339,14 +388,19 @@ func signResponseDebug(signatureName string, signer Signer, res *http.Response, 
 		return "", "", "", fmt.Errorf("empty signature name")
 	}
 	resWithTrailers := signer.fields.hasTrailerFields(false)
-	parsedRes, err := parseResponse(res, resWithTrailers)
+	parsedRes, err := parseResponse(res, resWithTrailers, signer.config.maxBodySize)
 	if err != nil {
 		return "", "", "", err
 	}
-	reqWithTrailers := signer.fields.hasTrailerFields(true)
-	parsedReq, err := parseRequest(req, reqWithTrailers)
-	if err != nil {
-		return "", "", "", err
+	var parsedReq *parsedMessage
+	if req != nil {
+		reqWithTrailers := signer.fields.hasTrailerFields(true)
+		parsedReq, err = parseRequest(req, reqWithTrailers, signer.config.maxBodySize, resolvedScheme(signer.config.schemeFromRequest, req))
+		if err != nil {
+			return "", "", "", err
+		}
+	} else if signer.fields.hasAssociatedRequestFields() {
+		return "", "", "", fmt.Errorf("nil request")
 	}
 	return signMessage(*signer.config, signatureName, signer, parsedRes, parsedReq, signer.fields)
 }
@@ -358,28 +412,16 @@ func VerifyRequest(signatureName string, verifier Verifier, req *http.Request) e
 }
 
 func verifyRequestDebug(signatureName string, verifier Verifier, req *http.Request) (signatureBase string, err error) {
-	if req == nil {
-		return "", fmt.Errorf("nil request")
+	config := NewMessageConfig().WithRequest(req)
+	if s := resolvedScheme(verifier.config.schemeFromRequest, req); s != "" {
+		config = config.WithScheme(s)
 	}
-	if signatureName == "" {
-		return "", fmt.Errorf("empty signature name")
-	}
-	withTrailers, wantSigRaw, psiSig, err := extractSignatureFields(signatureName, &verifier, req.Header, req.Trailer, &req.Body)
+	msg, err := NewMessage(config)
 	if err != nil {
 		return "", err
 	}
-	parsedMessage, err := parseRequest(req, withTrailers)
-	if err != nil {
-		return "", err
-	}
-	return verifyMessage(*verifier.config, verifier, parsedMessage, nil, verifier.fields,
-		wantSigRaw, psiSig)
-}
-
-// MessageDetails aggregates the details of a signed message, for a given signature
-type MessageDetails struct {
-	KeyID, Alg string
-	Fields     Fields
+	signatureBase, _, err = verifyDebug(signatureName, verifier, msg)
+	return
 }
 
 // RequestDetails parses a signed request and returns the key ID and optionally the algorithm used in the given signature.
@@ -390,11 +432,51 @@ func RequestDetails(signatureName string, req *http.Request) (details *MessageDe
 	if signatureName == "" {
 		return nil, fmt.Errorf("empty signature name")
 	}
-	_, _, psiSig, err := extractSignatureFields(signatureName, nil, req.Header, req.Trailer, &req.Body)
+	_, _, psiSig, err := extractSignatureFields(signatureName, nil, req.Header, req.Trailer, &req.Body, 0)
 	if err != nil {
 		return nil, fmt.Errorf("could not extract signature: %w", err)
 	}
 	return signatureDetails(psiSig)
+}
+
+func verifyDebug(signatureName string, verifier Verifier, message *Message) (string, *psiSignature, error) {
+	if message == nil {
+		return "", nil, fmt.Errorf("nil message")
+	}
+	if signatureName == "" {
+		return "", nil, fmt.Errorf("empty signature name")
+	}
+
+	withTrailers, wantSigRaw, psiSig, err := extractSignatureFields(
+		signatureName, &verifier, message.headers, message.trailers, message.body, verifier.config.maxBodySize)
+	if err != nil {
+		return "", nil, err
+	}
+
+	var parsedMsg *parsedMessage
+	var parsedAssoc *parsedMessage
+
+	// Parse the main message
+	parsedMsg, err = parseMessage(message, withTrailers, verifier.config.maxBodySize)
+	if err != nil {
+		return "", nil, err
+	}
+
+	// If there's an associated request, parse that too
+	if assocMsg := message.assocReq; assocMsg != nil {
+		parsedAssoc, err = parseMessage(assocMsg, false, verifier.config.maxBodySize)
+		if err != nil {
+			return "", nil, err
+		}
+	}
+
+	signatureBase, err := verifyMessage(*verifier.config, verifier, parsedMsg, parsedAssoc,
+		verifier.fields, wantSigRaw, psiSig)
+	if err != nil {
+		return "", nil, err
+	}
+
+	return signatureBase, psiSig, nil
 }
 
 // ResponseDetails parses a signed response and returns the key ID and optionally the algorithm used in the given signature.
@@ -405,7 +487,7 @@ func ResponseDetails(signatureName string, res *http.Response) (details *Message
 	if signatureName == "" {
 		return nil, fmt.Errorf("empty signature name")
 	}
-	_, _, psiSig, err := extractSignatureFields(signatureName, nil, res.Header, res.Trailer, &res.Body)
+	_, _, psiSig, err := extractSignatureFields(signatureName, nil, res.Header, res.Trailer, &res.Body, 0)
 	if err != nil {
 		return nil, fmt.Errorf("could not extract signature: %w", err)
 	}
@@ -418,7 +500,7 @@ func ResponseDetails(signatureName string, res *http.Response) (details *Message
 // needs to be read because signature headers appear in trailers. Trailers are very uncommon
 // and come at a performance cost.
 func RequestSignatureNames(req *http.Request, withTrailers bool) ([]string, error) {
-	parsedMessage, err := parseRequest(req, withTrailers)
+	parsedMessage, err := parseRequest(req, withTrailers, 0, "")
 	if err != nil {
 		return nil, fmt.Errorf("could not parse request: %w", err)
 	}
@@ -431,7 +513,7 @@ func RequestSignatureNames(req *http.Request, withTrailers bool) ([]string, erro
 // needs to be read because signature headers appear in trailers. Trailers are very uncommon
 // and come at a performance cost.
 func ResponseSignatureNames(res *http.Response, withTrailers bool) ([]string, error) {
-	parsedMessage, err := parseResponse(res, withTrailers)
+	parsedMessage, err := parseResponse(res, withTrailers, 0)
 	if err != nil {
 		return nil, fmt.Errorf("could not parse response: %w", err)
 	}
@@ -439,7 +521,8 @@ func ResponseSignatureNames(res *http.Response, withTrailers bool) ([]string, er
 }
 
 func messageSignatureNames(parsedMessage *parsedMessage, withTrailers bool) ([]string, error) {
-	//lint:ignore SA1008 the Header type expects canonicalized names, tough
+	// Note: parsedMessage.headers intentionally uses lowercase keys (see httpparse.go)
+	// Linter warning about non-canonical key is expected and can be ignored
 	signatureField := parsedMessage.headers["signature"]
 	dict, err := httpsfv.UnmarshalDictionary(signatureField)
 	if err != nil {
@@ -447,7 +530,8 @@ func messageSignatureNames(parsedMessage *parsedMessage, withTrailers bool) ([]s
 	}
 	names := dict.Names()
 	if withTrailers {
-		//lint:ignore SA1008 the Header type expects canonicalized names, tough
+		// Note: parsedMessage.trailers intentionally uses lowercase keys (see httpparse.go)
+		// Linter warning about non-canonical key is expected and can be ignored
 		signatureField := parsedMessage.trailers["signature"]
 		dict, err := httpsfv.UnmarshalDictionary(signatureField)
 		if err != nil {
@@ -459,13 +543,13 @@ func messageSignatureNames(parsedMessage *parsedMessage, withTrailers bool) ([]s
 }
 
 func signatureDetails(signature *psiSignature) (details *MessageDetails, err error) {
-	keyIDParam, ok := signature.params["keyid"]
-	if !ok {
-		return nil, fmt.Errorf("missing \"keyid\" parameter")
-	}
-	keyID, ok := keyIDParam.(string)
-	if !ok {
-		return nil, fmt.Errorf("malformed \"keyid\" parameter")
+	var keyID *string
+	if keyIDParam, ok := signature.params["keyid"]; ok {
+		k, ok := keyIDParam.(string)
+		if !ok {
+			return nil, fmt.Errorf("malformed \"keyid\" parameter")
+		}
+		keyID = &k
 	}
 	var alg string
 	algParam, ok := signature.params["alg"] // "alg" is optional
@@ -475,11 +559,38 @@ func signatureDetails(signature *psiSignature) (details *MessageDetails, err err
 			return nil, fmt.Errorf("malformed \"alg\" parameter")
 		}
 	}
-	return &MessageDetails{
+	details = &MessageDetails{
 		KeyID:  keyID,
 		Alg:    alg,
 		Fields: signature.fields,
-	}, nil
+	}
+
+	if created, ok := signature.params["created"].(int64); ok {
+		t := time.Unix(created, 0)
+		details.Created = &t
+	}
+	if expires, ok := signature.params["expires"].(int64); ok {
+		t := time.Unix(expires, 0)
+		details.Expires = &t
+	}
+	if nonce, ok := signature.params["nonce"].(string); ok {
+		details.Nonce = &nonce
+	}
+	if tag, ok := signature.params["tag"].(string); ok {
+		details.Tag = &tag
+	}
+
+	custom := map[string]interface{}{}
+	for name, val := range signature.params {
+		if !reservedSigParams[name] {
+			custom[name] = val
+		}
+	}
+	if len(custom) > 0 {
+		details.CustomParams = custom
+	}
+
+	return details, nil
 }
 
 // VerifyResponse verifies a signed HTTP response. Returns an error if verification failed for any reason, otherwise nil.
@@ -489,34 +600,21 @@ func VerifyResponse(signatureName string, verifier Verifier, res *http.Response,
 }
 
 func verifyResponseDebug(signatureName string, verifier Verifier, res *http.Response, req *http.Request) (signatureBase string, err error) {
-	if res == nil {
-		return "", fmt.Errorf("nil response")
+	config := NewMessageConfig()
+	if s := resolvedScheme(verifier.config.schemeFromRequest, req); s != "" {
+		config = config.WithScheme(s)
 	}
-	if signatureName == "" {
-		return "", fmt.Errorf("empty signature name")
-	}
-	resWithTrailers, wantSigRaw, psiSig, err := extractSignatureFields(signatureName, &verifier, res.Header, res.Trailer, &res.Body)
+	config = config.WithResponse(res, req)
+	msg, err := NewMessage(config)
 	if err != nil {
 		return "", err
 	}
-	parsedMessage, err := parseResponse(res, resWithTrailers)
-	if err != nil {
-		return "", err
-	}
-	// Read the associated request with trailers if the verifier requests its trailers, or there are signed trailer
-	// covered in the signature
-	reqWithTrailers := verifier.fields.hasTrailerFields(true) || psiSig.fields.hasTrailerFields(true)
-	parsedAssocMessage, err := parseRequest(req, reqWithTrailers)
-	if err != nil {
-		return "", err
-	}
-	signatureBase, err = verifyMessage(*verifier.config, verifier, parsedMessage, parsedAssocMessage,
-		verifier.fields, wantSigRaw, psiSig)
-	return signatureBase, err
+	signatureBase, _, err = verifyDebug(signatureName, verifier, msg)
+	return
 }
 
 func extractSignatureFields(signatureName string, verifier *Verifier,
-	headers http.Header, trailers http.Header, body *io.ReadCloser) (bool, []byte, *psiSignature, error) {
+	headers http.Header, trailers http.Header, body *io.ReadCloser, maxBodySize int64) (bool, []byte, *psiSignature, error) {
 	/*
 		Parse trailers if:
 		- A trailer field needs to be verified
@@ -530,7 +628,7 @@ func extractSignatureFields(signatureName string, verifier *Verifier,
 	sigRaw, parsedSigInput, err := signatureFieldsFromHeaders(headers, signatureName)
 	if err != nil {
 		if errors.Is(err, errHeaderNotFound) {
-			_, err := duplicateBody(body)
+			_, err := duplicateBody(body, maxBodySize)
 			if err != nil {
 				return false, nil, nil, err
 			}
@@ -613,20 +711,40 @@ func applyVerificationPolicy(message parsedMessage, psi *psiSignature, config Ve
 	if err5 != nil {
 		return err5
 	}
+	err6 := applyPolicyNonce(psi, config)
+	if err6 != nil {
+		return err6
+	}
 	return nil
+}
+
+func applyPolicyNonce(psi *psiSignature, config VerifyConfig) error {
+	if config.nonceValidator == nil {
+		return nil
+	}
+	nonceParam, ok := psi.params["nonce"]
+	if !ok {
+		return nil
+	}
+	nonce, ok := nonceParam.(string)
+	if !ok {
+		return fmt.Errorf("malformed \"nonce\" parameter")
+	}
+	return config.nonceValidator(nonce)
 }
 
 func applyPolicyOthers(psi *psiSignature, config VerifyConfig) error {
 	if config.keyID != nil {
 		keyidParam, ok := psi.params["keyid"]
-		if ok {
-			keyID, ok := keyidParam.(string)
-			if !ok {
-				return fmt.Errorf("malformed \"keyid\" parameter")
-			}
-			if keyID != *config.keyID {
-				return fmt.Errorf("wrong keyid \"%s\"", keyID)
-			}
+		if !ok {
+			return fmt.Errorf("missing \"keyid\" parameter")
+		}
+		keyID, ok := keyidParam.(string)
+		if !ok {
+			return fmt.Errorf("malformed \"keyid\" parameter")
+		}
+		if keyID != *config.keyID {
+			return fmt.Errorf("wrong keyid \"%s\"", keyID)
 		}
 	}
 	return nil
@@ -741,7 +859,7 @@ func applyPolicyCreated(psi *psiSignature, message parsedMessage, config VerifyC
 func verifySignature(verifier Verifier, input string, signature []byte) error {
 	verified, err := verifier.verify([]byte(input), signature)
 	if !verified && (err == nil) {
-		err = fmt.Errorf("bad signature, check key or signature value")
+		err = fmt.Errorf("signature verification failed")
 	}
 	return err
 }
