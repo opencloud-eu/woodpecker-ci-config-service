@@ -68,6 +68,24 @@ The `server` command starts a web server that serves configuration files for CI 
 wccs server
 ```
 
+## Compatibility
+
+| wccs             | built against Woodpecker CI |
+|------------------|-----------------------------|
+| v1.0.0           | v3.2 (development snapshot) |
+| v1.0.1           | v3.8.0                      |
+| v1.1.0 to v1.2.0 | v3.14.0                     |
+
+Things to know:
+
+- **Woodpecker CI v3.14.0 and newer** only send the netrc data if asked to.
+  The `forge` provider needs it to select the forge and to authenticate, without it the provider is skipped
+  and Woodpecker CI falls back to the configuration from the repository.
+  Set `WOODPECKER_CONFIG_EXTENSION_NETRC=true` on the Woodpecker CI server for the global endpoint,
+  or enable the netrc option in the repository settings if wccs is configured per repository.
+- `ctx.build.cron` is available since wccs v1.2.0.
+- The `forge` provider supports GitHub only and `repo.config` must point to a single file, globs are not supported.
+
 ## Installation
 
 To install `woodpecker-ci-config-service`, clone the repository and build the tool:
