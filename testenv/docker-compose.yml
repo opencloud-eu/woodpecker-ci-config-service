@@ -39,7 +39,7 @@ services:
       - WOODPECKER_MAX_WORKFLOWS=${WOODPECKER_MAX_WORKFLOWS}
 
   minio:
-    image: docker.io/bitnami/minio:latest
+    image: docker.io/soldevelo/minio:latest
     ports:
       - "9000:9000"
       - "9001:9001"
