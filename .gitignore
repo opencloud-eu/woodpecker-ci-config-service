@@ -8,3 +8,5 @@ testenv/volumes/squid/*
 testenv/volumes/nginx/*
 !testenv/volumes/squid/squid.conf
 testenv/volumes/woodpecker-*
+vendor/*
+bin/
