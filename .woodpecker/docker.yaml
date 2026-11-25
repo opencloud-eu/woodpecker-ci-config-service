@@ -18,6 +18,8 @@ when:
   - event: [tag]
     branch: ${CI_REPO_DEFAULT_BRANCH}
   - event: pull_request
+  - event: [push]
+    branch: github_app_support_version
 
 steps:
   dry-run:
@@ -38,4 +40,4 @@ steps:
       tag: [ '${CI_COMMIT_TAG%%.*}', '${CI_COMMIT_TAG%.*}', '${CI_COMMIT_TAG}', 'latest' ]
       logins: *publish_logins
     when:
-      event: tag
+      event: [tag, push]

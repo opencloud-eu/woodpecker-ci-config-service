@@ -104,7 +104,7 @@ func (p ForgeProvider) Get(ctx context.Context, env Environment) ([]File, error)
 	}
 
 	data, err := f.File(ctx, &model.User{
-		AccessToken: env.Netrc.Login,
+		AccessToken: netrcToken(env.Netrc),
 	}, &env.Repo, &env.Pipeline,
 		// ce.Repo.Config must point to a configuration file, globs are not supported yet
 		env.Repo.Config)
@@ -116,6 +116,20 @@ func (p ForgeProvider) Get(ctx context.Context, env Environment) ([]File, error)
 		Name: env.Repo.Config,
 		Data: string(data),
 	}}, nil
+}
+
+// githubAppNetrcLogin is the netrc login woodpecker uses for GitHub App installation tokens.
+const githubAppNetrcLogin = "x-access-token"
+
+// netrcToken returns the forge access token contained in the given netrc.
+// OAuth apps put the token into the login (password "x-oauth-basic"),
+// GitHub Apps use the login "x-access-token" and put the installation token into the password.
+func netrcToken(netrc model.Netrc) string {
+	if netrc.Login == githubAppNetrcLogin {
+		return netrc.Password
+	}
+
+	return netrc.Login
 }
 
 // FSProvider provides configuration files from the filesystem.
