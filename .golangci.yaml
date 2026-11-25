@@ -1,4 +1,7 @@
 linters-settings:
+  gomoddirectives:
+    replace-allow-list:
+      - go.woodpecker-ci.org/woodpecker/v3
   gofmt:
     simplify: true
     rewrite-rules:
